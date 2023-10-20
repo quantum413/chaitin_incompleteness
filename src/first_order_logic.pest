@@ -1,0 +1,22 @@
+name = {ASCII_ALPHANUMERIC*}
+variable = {"v" ~ name}
+just_variable = _{SOI~variable~EOI}
+function = {"(" ~ "f" ~ _func_chunk ~")"}
+_func_chunk = _{"_" ~ _func_chunk ~ " " ~ term | name}
+term = _{variable | function}
+
+predicate = {"(" ~ "P" ~ _func_chunk ~ ")"}
+equals = {"(" ~ "=" ~ " " ~ term ~ " " ~ term ~ ")"}
+atomic = _{predicate | equals}
+
+not = {"(! " ~ formula ~ ")"}
+implies = {"(> " ~ formula ~ " " ~ formula ~ ")"}
+and = {"(& " ~ formula ~ " " ~ formula ~ ")"}
+or  = {"(| " ~ formula ~ " " ~ formula ~ ")"}
+logical = _{not | implies | and | or}
+
+forall = {"(@ " ~ variable ~ " " ~ formula ~ ")"}
+exists = {"(# " ~ variable ~ " " ~ formula ~ ")"}
+quantifiers = _{forall | exists}
+
+formula = _{atomic | logical | quantifiers}
