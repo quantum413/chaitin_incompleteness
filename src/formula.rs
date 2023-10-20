@@ -141,6 +141,53 @@ impl<'a> Formula<'a> {
             _ => unreachable!()
         }
     }
+    fn replace_free(&self, name: &str, rep: &'a str) -> Self{
+        match self {
+            Formula::Predicate(n, v) => Formula::Predicate(
+                n.clone(),
+                v.into_iter().map(|e| e.replace_var(name, rep)).collect()
+            ),
+            Formula::Equals(a, b) => Formula::Equals(
+                a.replace_var(name, rep),
+                b.replace_var(name, rep),
+            ),
+            Formula::Implies(a, b) => Formula::Implies(
+                Box::new(a.replace_free(name, rep)),
+                Box::new(b.replace_free(name, rep)),
+            ),
+            Formula::And(a, b) => Formula::And(
+                Box::new(a.replace_free(name, rep)),
+                Box::new(b.replace_free(name, rep)),
+            ),
+            Formula::Or(a, b) => Formula::Or(
+                Box::new(a.replace_free(name, rep)),
+                Box::new(b.replace_free(name, rep)),
+            ),
+            Formula::Not(a) => Formula::Not(
+                Box::new(a.replace_free(name, rep)),
+            ),
+            Formula::ForAll(n, a) => Formula::ForAll(
+                n.clone(),
+                if *n == name {a.clone()} else {Box::new(a. replace_free(name, rep))},
+            ),
+            Formula::Exists(n, a) => Formula::Exists(
+                n.clone(),
+                if *n == name {a.clone()} else {Box::new(a. replace_free(name, rep))},
+            ),
+        }
+    }
+    fn has_free(&self, name: &str) -> bool{
+        match self{
+            Formula::Predicate(_, v) => v.into_iter().any(|e| e.contains_var(name)),
+            Formula::Equals(a, b) => a.contains_var(name) | b.contains_var(name),
+            Formula::Implies(a, b) => a.has_free(name) | b.has_free(name),
+            Formula::And(a, b) => a.has_free(name) | b.has_free(name),
+            Formula::Or(a, b) => a.has_free(name) | b.has_free(name),
+            Formula::Not(a) => a.has_free(name),
+            Formula::ForAll(v, a) => *v != name && a.has_free(name),
+            Formula::Exists(v, a) => *v != name && a.has_free(name),
+        }
+    }
 }
 
 impl PartialEq for Formula<'_>{
@@ -327,6 +374,35 @@ mod formula_test {
         let str_5_5 = "(# v (@ vx (& (! (P)) (| (> (P__ v v) (P)) (= vx (f_a vy))))))";
         let fa_5_5 = Formula::new_from_string(str_5_5).unwrap();
         assert_eq!(fa_5_5.clone(), fa_5_5);
+    }
+
+    #[test]
+    fn formula_free(){
+        let str_1 = "(# vx (@ vx (& (! (P_ vy)) (| (> (P__ vy vz) (P)) (= vy (f_a vy))))))";
+        let fa_1 = Formula::new_from_string(str_1).unwrap();
+        let target_1_1 = "(# vx (@ vx (& (! (P_ vw)) (| (> (P__ vw vz) (P)) (= vw (f_a vw))))))";
+        assert_eq!(fa_1.replace_free("y", "w").to_string(), target_1_1);
+
+        let str_2 = "(> (P__ vx vy) (@ vx (# vy (P___ vx vy vw))))";
+        let fa_2 = Formula::new_from_string(str_2).unwrap();
+        let target_2_1 = "(> (P__ vz vy) (@ vx (# vy (P___ vx vy vw))))";
+        let target_2_2 = "(> (P__ vx vz) (@ vx (# vy (P___ vx vy vw))))";
+        assert_eq!(fa_2.replace_free("x", "z").to_string(), target_2_1);
+        assert_eq!(fa_2.replace_free("y", "z").to_string(), target_2_2);
+
+        assert!(fa_2.has_free("x"));
+        assert!(!fa_2.has_free("a"));
+        let str_3 = "(# vx (@ vy (& (! (P_ vz)) (| (> (P__ vw vxx) (P)) (= vyy (f_a vyz))))))";
+        let fa_3 = Formula::new_from_string(str_3).unwrap();
+        assert!(fa_3.has_free("z"));
+        assert!(fa_3.has_free("yz"));
+        assert!(!fa_3.has_free("x"));
+        assert!(!fa_3.has_free("y"));
+
+        let str_4 = "(> (@ vx (P_ vx)) (# vy (P_ vy)))";
+        let fa_4 = Formula::new_from_string(str_4).unwrap();
+        assert!(!fa_4.has_free("x"));
+        assert!(!fa_4.has_free("y"));
     }
 }
 
