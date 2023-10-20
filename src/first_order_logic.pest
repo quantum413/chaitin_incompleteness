@@ -20,3 +20,4 @@ exists = {"(# " ~ variable ~ " " ~ formula ~ ")"}
 quantifiers = _{forall | exists}
 
 formula = _{atomic | logical | quantifiers}
+just_formula = _{SOI~formula~!ANY}
