@@ -1,61 +1,71 @@
 use std::fmt::{Debug, Formatter};
 use std::vec::Vec;
+use impl_tools::autoimpl;
 
 type Index = usize;
 
 trait DeductionRule {
     type Formula;
     type Parameter;
-    fn deduce(params: &Self::Parameter, inputs: &Vec<&Self::Formula>) -> Option<Self::Formula>;
-    fn make_deduction<'a>(params: &'a Self::Parameter, inputs: &Vec<&'a Self::Formula>)
-        -> Option<Deduction<'a, Self>>
-        where Self: Sized, Self::Formula : Eq, Self::Parameter: Eq
+    fn deduce(params: Self::Parameter, inputs: Vec<Self::Formula>) -> Option<Self::Formula>;
+    fn make_deduction(params: Self::Parameter, inputs: Vec<Self::Formula>)
+        -> Option<Deduction<Self>>
+        where Self: Sized, Self::Formula : Eq + Clone, Self::Parameter: Eq + Clone
     {
-        Deduction::<'a, Self>::new(params, inputs.clone())
+        Deduction::<Self>::new(params, inputs)
     }
 }
 
-struct Deduction<'a, D: DeductionRule>{
-    params: &'a D::Parameter,
-    inputs: Vec<&'a D::Formula>,
+#[autoimpl(Debug where D::Formula: Debug, D::Parameter: Debug)]
+#[autoimpl(Clone where D::Formula: Clone, D::Parameter: Clone)]
+#[autoimpl(PartialEq where D::Formula: PartialEq, D::Parameter: PartialEq)]
+#[autoimpl(Eq where D::Formula: Eq, D::Parameter: Eq)]
+struct Deduction<D: DeductionRule>{
+    params: D::Parameter,
+    inputs: Vec<D::Formula>,
     output: D::Formula,
 }
 
-impl<'a, D: DeductionRule> Debug for Deduction<'a, D> where D::Formula: Debug, D::Parameter: Debug {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let Deduction {params, inputs, output} = self;
-        f
-            .debug_struct("Deduction")
-            .field("params", &params)
-            .field("inputs", &inputs)
-            .field("output", &output)
-            .finish()
-    }
-}
+// impl<D: DeductionRule> Debug for Deduction<D> where D::Formula: Debug, D::Parameter: Debug {
+//     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+//         let Deduction {params, inputs, output} = self;
+//         f
+//             .debug_struct("Deduction")
+//             .field("params", &params)
+//             .field("inputs", &inputs)
+//             .field("output", &output)
+//             .finish()
+//     }
+// }
 
-impl<'a, D: DeductionRule> Deduction<'a, D> {
-    fn new(params: &'a D::Parameter, inputs: Vec<&'a D::Formula>) -> Option<Self>{
-        D::deduce(params, &inputs).map(
+impl<D: DeductionRule> Deduction<D> {
+    fn new(params: D::Parameter, inputs: Vec<D::Formula>) -> Option<Self>
+        where D::Parameter: Clone, D::Formula: Clone{
+        D::deduce(params.clone(), inputs.clone()).map(
             |output| Deduction {params, inputs, output}
         )
     }
 
-    fn get_output(&self) -> &D::Formula { &self.output }
-    fn get_params(&self) -> &'a D::Parameter { self.params }
-    fn get_inputs(&self) -> &Vec<&'a D::Formula> { &self.inputs }
+    // fn output(&self) -> &D::Formula { &self.output }
+    // fn params(&self) -> &D::Parameter { &self.params }
+    // fn inputs(&self) -> &Vec<D::Formula> { &self.inputs }
 }
 
-impl<'a, D: DeductionRule>
-        PartialEq for Deduction<'a, D> where D::Formula: PartialEq, D::Parameter: PartialEq, {
-    fn eq(&self, other: &Self) -> bool {
-        (&self.params, &self.inputs, &self.output) ==
-            (&other.params, &other.inputs, &other.output)
-    }
-}
+// impl<D: DeductionRule>
+//         PartialEq for Deduction<D> where D::Formula: PartialEq, D::Parameter: PartialEq, {
+//     fn eq(&self, other: &Self) -> bool {
+//         (&self.params, &self.inputs, &self.output) ==
+//             (&other.params, &other.inputs, &other.output)
+//     }
+// }
+//
+// impl<D: DeductionRule> Eq for Deduction<D> where D::Formula: Eq, D::Parameter: Eq,  {}
 
-impl<'a, D: DeductionRule> Eq for Deduction<'a, D> where D::Formula: Eq + PartialEq, D::Parameter: Eq + PartialEq,  {}
-
-#[derive(Debug)]
+// #[derive(Debug)]
+#[autoimpl(Debug where D::Formula: Debug, D::Parameter: Debug)]
+#[autoimpl(Clone where D::Formula: Clone, D::Parameter: Clone)]
+#[autoimpl(PartialEq where D::Formula: PartialEq, D::Parameter: PartialEq)]
+#[autoimpl(Eq where D::Formula: Eq, D::Parameter: Eq)]
 struct UncheckedProof<D: DeductionRule> {
     result: D::Formula,
     inputs: Vec<D::Formula>,
@@ -64,18 +74,27 @@ struct UncheckedProof<D: DeductionRule> {
 
 impl<D: DeductionRule> UncheckedProof<D> {
     fn new(result: D::Formula, inputs: Vec<D::Formula>, proof: Vec<((D::Parameter, Vec<Index>), D::Formula)>) -> Self {
-        UncheckedProof {result, inputs, proof} // TODO
+        UncheckedProof {result, inputs, proof}
     }
 }
 
-impl<D: DeductionRule> PartialEq for UncheckedProof<D> where D::Formula: PartialEq, D::Parameter: PartialEq{
-    fn eq(&self, other: &Self) -> bool {
-        self.result == other.result && self.inputs == other.inputs && self.proof == other.proof
-    }
-}
-
-impl<D: DeductionRule> Eq for UncheckedProof<D> where D::Formula: Eq, D::Parameter: Eq {}
-
+// impl<D: DeductionRule> PartialEq for UncheckedProof<D> where D::Formula: PartialEq, D::Parameter: PartialEq{
+//     fn eq(&self, other: &Self) -> bool {
+//         self.result == other.result && self.inputs == other.inputs && self.proof == other.proof
+//     }
+// }
+//
+// impl<D: DeductionRule> Eq for UncheckedProof<D> where D::Formula: Eq, D::Parameter: Eq {}
+//
+// impl<D: DeductionRule> Clone for UncheckedProof<D> where D::Formula: Clone, D::Parameter: Clone{
+//     fn clone(&self) -> Self {
+//         UncheckedProof {
+//             result: self.result.clone(),
+//             inputs: self.inputs.clone(),
+//             proof: self.proof.clone(),
+//         }
+//     }
+// }
 // trait AbstractParser<S> : Eq + Sized{
 //     fn parse(input: &S) -> Option<Self>;
 //     fn un_parse(&self) -> S;
@@ -103,34 +122,37 @@ impl<D: DeductionRule> Eq for UncheckedProof<D> where D::Formula: Eq, D::Paramet
 //         else { true }
 //     }
 // }
-
-struct Proof<'a, D: DeductionRule>{
-    inputs: Vec<&'a D::Formula>,
-    output: &'a D::Formula,
-    deductions: Vec<(Deduction<'a, D>, Vec<Index>)>,
+#[autoimpl(Debug where D::Formula: Debug, D::Parameter: Debug)]
+#[autoimpl(Clone where D::Formula: Clone, D::Parameter: Clone)]
+#[autoimpl(PartialEq where D::Formula: PartialEq, D::Parameter: PartialEq)]
+#[autoimpl(Eq where D::Formula: Eq, D::Parameter: Eq)]
+struct Proof<D: DeductionRule>{
+    inputs: Vec<D::Formula>,
+    output: D::Formula,
+    deductions: Vec<(Deduction<D>, Vec<Index>)>,
 }
 
-impl<'a, D: DeductionRule> Debug for Proof<'a, D> where D::Formula: Debug, D::Parameter: Debug{
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let Proof {inputs, output, deductions} = self;
-        f
-            .debug_struct("Proof")
-            .field("inputs", &inputs)
-            .field("output", &output)
-            .field("deductions", &deductions)
-            .finish()
-    }
-}
-impl <'a, D: DeductionRule> PartialEq for Proof<'a, D> where D::Formula: PartialEq, D::Parameter: PartialEq{
-    fn eq(&self, other: &Self) -> bool {
-        &self.inputs == &other.inputs && &self.output == &other.output && &self.deductions == &other.deductions
-    }
-}
+// impl<D: DeductionRule> Debug for Proof<D> where D::Formula: Debug, D::Parameter: Debug{
+//     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+//         let Proof {inputs, output, deductions} = self;
+//         f
+//             .debug_struct("Proof")
+//             .field("inputs", &inputs)
+//             .field("output", &output)
+//             .field("deductions", &deductions)
+//             .finish()
+//     }
+// }
+// impl <D: DeductionRule> PartialEq for Proof<D> where D::Formula: PartialEq, D::Parameter: PartialEq{
+//     fn eq(&self, other: &Self) -> bool {
+//         self.inputs == other.inputs && self.output == other.output && self.deductions == other.deductions
+//     }
+// }
+//
+// impl <D: DeductionRule> Eq for Proof<D> where D::Formula: Eq, D::Parameter: Eq {}
 
-impl <'a, D: DeductionRule> Eq for Proof<'a, D> where D::Formula: Eq, D::Parameter: Eq {}
-
-impl <'a, D: DeductionRule> Proof<'a, D> {
-    fn check<'b: 'a>(pf: &'b UncheckedProof<D>) -> Option<Self> where D::Formula: Eq, D::Parameter: Eq{
+impl <D: DeductionRule> Proof<D> {
+    fn check(pf: UncheckedProof<D>) -> Option<Self> where D::Formula: Eq, D::Parameter: Eq{
         // let inputs : Vec<&'a D::Formula> = (&pf.inputs).into_iter().collect();
         // let output = &pf.result; // TODO: remove unchecked usage of result
         // let mut deductions: Vec<(Deduction<D>, Vec<Index>)> = vec![];
@@ -158,7 +180,7 @@ impl <'a, D: DeductionRule> Proof<'a, D> {
     fn un_check(&self) -> UncheckedProof<D> where D::Formula : Clone, D::Parameter : Clone {
         UncheckedProof{
             result: self.output.clone(),
-            inputs: (&self.inputs).into_iter().map(|&e| e.clone()).collect(), // TODO
+            inputs: (&self.inputs).into_iter().map(|e| e.clone()).collect(), // TODO
             proof: vec![], // TODO
         }
     }
@@ -191,12 +213,12 @@ mod tests {
 
     impl DeductionRule for Decrement{
         type Formula = usize;
-        type Parameter = Box<str>;
+        type Parameter = String;
 
-        fn deduce(params: &Box<str>, inputs: &Vec<&usize>) -> Option<usize> {
-            if &**params != "d" || inputs.len() != 1 {return None;}
-            if *inputs[0] > 0 {
-                Some(*inputs[0] - 1)
+        fn deduce(params: String, inputs: Vec<usize>) -> Option<usize> {
+            if &params != "d" || inputs.len() != 1 {return None;}
+            if inputs[0] > 0 {
+                Some(inputs[0] - 1)
             }
             else {
                 None
@@ -205,23 +227,25 @@ mod tests {
     }
     #[test]
     fn decrement_rules(){
-        assert_eq!(Decrement::deduce(&"d".to_string().into_boxed_str(), &vec![&30usize]), Some(29));
-        assert_eq!(Decrement::deduce(&"e".to_string().into_boxed_str(), &vec![&30usize]), None);
-        assert_eq!(Decrement::deduce(&"d".to_string().into_boxed_str(), &vec![&0usize]), None);
-        assert_eq!(Decrement::deduce(&"d".to_string().into_boxed_str(), &vec![&30usize, &2usize]), None);
+        let d_str = "d".to_string();
+        let e_str = "e".to_string();
+        assert_eq!(Decrement::deduce(d_str.clone(), vec![30usize]), Some(29));
+        assert_eq!(Decrement::deduce(e_str.clone(), vec![30usize]), None);
+        assert_eq!(Decrement::deduce(d_str.clone(), vec![0usize]), None);
+        assert_eq!(Decrement::deduce(d_str.clone(), vec![30usize, 2usize]), None);
     }
 
     #[test]
     fn decrement_deduction(){
-        let d_str = "d".to_string().into_boxed_str();
-        assert!(Decrement::make_deduction(&d_str, &vec![&0usize]).is_none());
-        let d_1 = Decrement::make_deduction(&d_str, &vec![&30usize]).unwrap();
-        let d_2 = Decrement::make_deduction(&d_str, &vec![&20usize]).unwrap();
+        let d_str = "d".to_string();
+        assert!(Decrement::make_deduction(d_str.clone(), vec![0usize]).is_none());
+        let d_1 = Decrement::make_deduction(d_str.clone(), vec![30usize]).unwrap();
+        let d_2 = Decrement::make_deduction(d_str.clone(), vec![20usize]).unwrap();
         assert_eq!(d_1, d_1);
         assert_ne!(d_1, d_2);
-        assert_eq!(d_1.get_output(), &29usize);
-        assert_eq!(d_1.get_params(), &d_str);
-        assert_eq!(d_1.get_inputs(), &vec![&30usize]);
+        assert_eq!(d_1.output, 29usize);
+        assert_eq!(d_1.params, d_str);
+        assert_eq!(d_1.inputs, vec![30usize]);
     }
 
     #[test]
@@ -230,11 +254,11 @@ mod tests {
             19usize,
             vec![20usize],
             vec![(
-                ("d".to_string().into_boxed_str(), vec![20usize]),
+                ("d".to_string(), vec![20usize]),
                 19usize
             )]
         );
-        let checked = Proof::check(&pf).unwrap();
-        assert_eq!(&pf, &checked.un_check());
+        let checked = Proof::check(pf.clone()).unwrap();
+        assert_eq!(pf, checked.un_check());
     }
 }
