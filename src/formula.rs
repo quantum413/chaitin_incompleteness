@@ -144,7 +144,7 @@ impl<'a> Formula<'a> {
     fn replace_free(&self, name: &str, rep: &'a str) -> Self{
         match self {
             Formula::Predicate(n, v) => Formula::Predicate(
-                n.clone(),
+                *n,
                 v.into_iter().map(|e| e.replace_var(name, rep)).collect()
             ),
             Formula::Equals(a, b) => Formula::Equals(
@@ -167,11 +167,11 @@ impl<'a> Formula<'a> {
                 Box::new(a.replace_free(name, rep)),
             ),
             Formula::ForAll(n, a) => Formula::ForAll(
-                n.clone(),
+                *n,
                 if *n == name {a.clone()} else {Box::new(a. replace_free(name, rep))},
             ),
             Formula::Exists(n, a) => Formula::Exists(
-                n.clone(),
+                *n,
                 if *n == name {a.clone()} else {Box::new(a. replace_free(name, rep))},
             ),
         }
@@ -233,14 +233,14 @@ impl PartialEq for Formula<'_>{
 impl Clone for Formula<'_> {
     fn clone(&self) -> Self {
         match self {
-            Formula::Predicate(s, v) => Formula::Predicate(s.clone(), v.clone()),
+            Formula::Predicate(s, v) => Formula::Predicate(*s, v.clone()),
             Formula::Equals(a, b) => Formula::Equals(a.clone(), b.clone()),
             Formula::Implies(a, b) => Formula::Implies(a.clone(), b.clone()),
             Formula::And(a, b) => Formula::And(a.clone(), b.clone()),
             Formula::Or(a, b) => Formula::Or(a.clone(), b.clone()),
             Formula::Not(a) => Formula::Not(a.clone()),
-            Formula::ForAll(n, a) => Formula::ForAll(n.clone(), a.clone()),
-            Formula::Exists(n, a) => Formula::Exists(n.clone(), a.clone()),
+            Formula::ForAll(n, a) => Formula::ForAll(*n, a.clone()),
+            Formula::Exists(n, a) => Formula::Exists(*n, a.clone()),
         }
     }
 }

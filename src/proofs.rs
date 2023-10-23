@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 use std::vec::Vec;
-use impl_tools::autoimpl;
+use derivative::Derivative;
 
 type Index = usize;
 
@@ -16,10 +16,11 @@ trait DeductionRule {
     }
 }
 
-#[autoimpl(Debug where D::Formula: Debug, D::Parameter: Debug)]
-#[autoimpl(Clone where D::Formula: Clone, D::Parameter: Clone)]
-#[autoimpl(PartialEq where D::Formula: PartialEq, D::Parameter: PartialEq)]
-#[autoimpl(Eq where D::Formula: Eq, D::Parameter: Eq)]
+#[derive(Derivative)]
+#[derivative(Debug(bound = "D::Formula: Debug, D::Parameter: Debug"))]
+#[derivative(Clone(bound = "D::Formula: Clone, D::Parameter: Clone"))]
+#[derivative(PartialEq(bound = "D::Formula: PartialEq, D::Parameter: PartialEq"))]
+#[derivative(Eq(bound = "D::Formula: Eq, D::Parameter: Eq"))]
 struct Deduction<D: DeductionRule>{
     params: D::Parameter,
     inputs: Vec<D::Formula>,
@@ -40,10 +41,11 @@ enum ProofStep<P> {
     Deduce(P, Vec<Index>),
 }
 
-#[autoimpl(Debug where D::Formula: Debug, D::Parameter: Debug)]
-#[autoimpl(Clone where D::Formula: Clone, D::Parameter: Clone)]
-#[autoimpl(PartialEq where D::Formula: PartialEq, D::Parameter: PartialEq)]
-#[autoimpl(Eq where D::Formula: Eq, D::Parameter: Eq)]
+#[derive(Derivative)]
+#[derivative(Debug(bound = "D::Formula: Debug, D::Parameter: Debug"))]
+#[derivative(Clone(bound = "D::Formula: Clone, D::Parameter: Clone"))]
+#[derivative(PartialEq(bound = "D::Formula: PartialEq, D::Parameter: PartialEq"))]
+#[derivative(Eq(bound = "D::Formula: Eq, D::Parameter: Eq"))]
 struct UncheckedProof<D: DeductionRule> {
     inputs: Vec<D::Formula>,
     output: D::Formula,
@@ -81,18 +83,20 @@ trait StrictAbstractParser<S: Eq + Clone> : AbstractParser<S> + Clone{
     }
 }
 
-#[autoimpl(PartialEq where D::Formula: PartialEq, D::Parameter: PartialEq)]
-#[autoimpl(Debug     where D::Formula: Debug    , D::Parameter: Debug    )]
-#[autoimpl(Eq        where D::Formula: Eq       , D::Parameter: Eq       )]
-#[autoimpl(Clone     where D::Formula: Clone    , D::Parameter: Clone    )]
+#[derive(Derivative)]
+#[derivative(Debug(bound = "D::Formula: Debug, D::Parameter: Debug"))]
+#[derivative(Clone(bound = "D::Formula: Clone, D::Parameter: Clone"))]
+#[derivative(PartialEq(bound = "D::Formula: PartialEq, D::Parameter: PartialEq"))]
+#[derivative(Eq(bound = "D::Formula: Eq, D::Parameter: Eq"))]
 enum CheckedProofStep<D: DeductionRule>{
     Input(D::Formula, Index),
     Deduce(Deduction<D>, Vec<Index>)
 }
-#[autoimpl(Debug where D::Formula: Debug, D::Parameter: Debug)]
-#[autoimpl(Clone where D::Formula: Clone, D::Parameter: Clone)]
-#[autoimpl(PartialEq where D::Formula: PartialEq, D::Parameter: PartialEq)]
-#[autoimpl(Eq where D::Formula: Eq, D::Parameter: Eq)]
+#[derive(Derivative)]
+#[derivative(Debug(bound = "D::Formula: Debug, D::Parameter: Debug"))]
+#[derivative(Clone(bound = "D::Formula: Clone, D::Parameter: Clone"))]
+#[derivative(PartialEq(bound = "D::Formula: PartialEq, D::Parameter: PartialEq"))]
+#[derivative(Eq(bound = "D::Formula: Eq, D::Parameter: Eq"))]
 struct Proof<D: DeductionRule>{
     inputs: Vec<D::Formula>,
     output: D::Formula,
