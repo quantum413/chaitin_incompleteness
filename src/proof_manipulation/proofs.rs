@@ -1,40 +1,11 @@
 use std::fmt::Debug;
 use std::vec::Vec;
 use derivative::Derivative;
+use crate::abstract_parser::{AbstractParser, StrictAbstractParser};
+use crate::proof_manipulation::deductions::{Deduction, DeductionRule};
 
 type Index = usize;
 
-trait DeductionRule {
-    type Formula;
-    type Parameter;
-    fn deduce(params: Self::Parameter, inputs: Vec<Self::Formula>) -> Option<Self::Formula>;
-    fn make_deduction(params: Self::Parameter, inputs: Vec<Self::Formula>)
-        -> Option<Deduction<Self>>
-        where Self: Sized, Self::Formula : Eq + Clone, Self::Parameter: Eq + Clone
-    {
-        Deduction::<Self>::new(params, inputs)
-    }
-}
-
-#[derive(Derivative)]
-#[derivative(Debug(bound = "D::Formula: Debug, D::Parameter: Debug"))]
-#[derivative(Clone(bound = "D::Formula: Clone, D::Parameter: Clone"))]
-#[derivative(PartialEq(bound = "D::Formula: PartialEq, D::Parameter: PartialEq"))]
-#[derivative(Eq(bound = "D::Formula: Eq, D::Parameter: Eq"))]
-struct Deduction<D: DeductionRule>{
-    params: D::Parameter,
-    inputs: Vec<D::Formula>,
-    output: D::Formula,
-}
-
-impl<D: DeductionRule> Deduction<D> {
-    fn new(params: D::Parameter, inputs: Vec<D::Formula>) -> Option<Self>
-        where D::Parameter: Clone, D::Formula: Clone{
-        D::deduce(params.clone(), inputs.clone()).map(
-            |output| Deduction {params, inputs, output}
-        )
-    }
-}
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ProofStep<P> {
     Input(Index),
@@ -58,31 +29,6 @@ impl<D: DeductionRule> UncheckedProof<D> {
     }
 }
 
-trait AbstractParser<S> : Sized{
-    fn parse(input: S) -> Option<Self>;
-    fn un_parse(self) -> S;
-    fn check_un_parse(self) -> bool where Self: Clone + Eq{
-        if let Some(parse_un_parse) =
-            <Self as AbstractParser<S>>::parse(
-                <Self as AbstractParser<S>>::un_parse(
-                    self.clone()
-                )
-            ){
-            parse_un_parse == self
-        }
-        else {false}
-    }
-}
-
-trait StrictAbstractParser<S: Eq + Clone> : AbstractParser<S> + Clone{
-    fn check_parse(input: S) -> bool{
-        if let Some(parsed) = Self::parse(input.clone()) {
-            input == parsed.un_parse()
-        }
-        else { true }
-    }
-}
-
 #[derive(Derivative)]
 #[derivative(Debug(bound = "D::Formula: Debug, D::Parameter: Debug"))]
 #[derivative(Clone(bound = "D::Formula: Clone, D::Parameter: Clone"))]
@@ -92,6 +38,35 @@ enum CheckedProofStep<D: DeductionRule>{
     Input(D::Formula, Index),
     Deduce(Deduction<D>, Vec<Index>)
 }
+
+impl<D: DeductionRule> CheckedProofStep<D> {
+    fn get_output(&self) -> &D::Formula{
+        match self {
+            CheckedProofStep::Input(f, _) => {&f}
+            CheckedProofStep::Deduce(d, _) => {&d.output}
+        }
+    }
+    fn check_step(inputs: &Vec<D::Formula>, step: ProofStep<D::Parameter>) -> Option<CheckedProofStep<D>>
+        where D::Formula: Clone + Eq, D::Parameter: Clone + Eq {
+        Some(match step {
+            ProofStep::Input(i) => {
+                CheckedProofStep::Input(inputs.get(i)?.clone(), i)
+            }
+            ProofStep::Deduce(params, indices) => {
+                let mut input_formulae: Vec<D::Formula> = vec![];
+                for &i in &indices {
+                    input_formulae.push(inputs.get(i)?.clone())
+                }
+                let deduction = D::make_deduction(params, input_formulae)?;
+                CheckedProofStep::Deduce(
+                    deduction,
+                    indices
+                )
+            }
+        })
+    }
+}
+
 #[derive(Derivative)]
 #[derivative(Debug(bound = "D::Formula: Debug, D::Parameter: Debug"))]
 #[derivative(Clone(bound = "D::Formula: Clone, D::Parameter: Clone"))]
@@ -105,43 +80,18 @@ struct Proof<D: DeductionRule>{
 
 impl<D: DeductionRule> AbstractParser<UncheckedProof<D>> for Proof<D> where D::Formula: Clone + Eq, D::Parameter: Clone + Eq {
     fn parse(pf: UncheckedProof<D>) -> Option<Self> {
-        let UncheckedProof{inputs, output: result, proof} = pf;
+        let UncheckedProof{inputs, output, proof} = pf;
+        if proof.len() == 0 {return None;}
         let mut deductions: Vec<CheckedProofStep<D>> = vec![];
         for (step, output) in proof.into_iter(){
-            match step {
-                ProofStep::Input(i) => {
-                    // TODO: check matches step output
-                    deductions.push(CheckedProofStep::Input(inputs[i].clone(), i)); // TODO: check out of bounds
-                }
-                ProofStep::Deduce(params, indices ) => {
-                    let mut input_formulae: Vec<D::Formula> = vec![];
-                    for &i in &indices {
-                        input_formulae.push(inputs[i].clone()) // TODO: Check out of bounds
-                    }
-                    // TODO: Check outputs match
-                    deductions.push(CheckedProofStep::Deduce(
-                        D::make_deduction(params, input_formulae)?,
-                        indices
-                    ));
-                }
-            }
-            // let mut input_formulae = vec![];
-            // for &i in &indices{
-            //     input_formulae.push(if i < inputs.len() {
-            //         Some(inputs[i].clone()) }
-            //     else if i < inputs.len() + deductions.len() {
-            //         todo!()
-            //         // Some((deductions[i].0).output.clone())
-            //     }
-            //     else { todo!() }?);
-            // }
-            // let deduction = D::make_deduction(params, input_formulae)?;
-            // if deduction.output != output {return None;}
-            // deductions.push((deduction, indices));
+            let checked_step = CheckedProofStep::check_step(&inputs, step)?;
+            if *checked_step.get_output() != output {return None;}
+            deductions.push(checked_step);
         }
+        if output != *deductions[deductions.len() - 1].get_output() {return None;}
         Some(Proof{
             inputs,
-            output: result,
+            output,
             deductions,
         })
     }
@@ -153,8 +103,10 @@ impl<D: DeductionRule> AbstractParser<UncheckedProof<D>> for Proof<D> where D::F
             proof: self.deductions.into_iter().map(
                 |s| {
                     match s {
-                        CheckedProofStep::Input(f, i) => (ProofStep::Input(i), f),
-                        CheckedProofStep::Deduce(d, indices) => (ProofStep::Deduce(d.params, indices), d.output),
+                        CheckedProofStep::Input(f, i) =>
+                            (ProofStep::Input(i), f),
+                        CheckedProofStep::Deduce(d, indices) =>
+                            (ProofStep::Deduce(d.params, indices), d.output),
                     }
                 }
             ).collect(),
@@ -166,7 +118,9 @@ impl<D: DeductionRule> StrictAbstractParser<UncheckedProof<D>> for Proof<D> wher
 
 #[cfg(test)]
 mod tests {
-    use crate::proofs::*;
+    use crate::abstract_parser::{AbstractParser, StrictAbstractParser};
+    use super::super::deductions::DeductionRule;
+    use super::*;
 
     #[derive(Debug)]
     struct Decrement;
@@ -208,6 +162,19 @@ mod tests {
         assert_eq!(d_1.inputs, vec![30usize]);
     }
     #[test]
+    fn decrement_make_proof() {
+        let pf = make_single_step_decrement_proof(
+            19usize,
+            20usize,
+            0usize,
+            20usize,
+            0usize,
+            19usize
+        );
+        assert!(Proof::parse(pf.clone()).is_some());
+        assert!(Proof::check_parse(pf));
+    }
+    #[test]
     fn decrement_proof_check_final_output() {
         let pf = make_single_step_decrement_proof(
             18usize,
@@ -239,21 +206,61 @@ mod tests {
             0usize,
             20usize,
             0usize,
-            19usize,
+            18usize,
         );
         assert!(Proof::parse(pf).is_none());
     }
     #[test]
-    fn decrement_make_proof() {
+    fn decrement_proof_zero_length() {
+        let pf: UncheckedProof<Decrement> = UncheckedProof::new(
+            20usize,
+            vec![20usize],
+            vec![]
+        );
+        assert!(Proof::parse(pf).is_none());
+    }
+    #[test]
+    fn decrement_proof_identity(){
+        let pf: UncheckedProof<Decrement> = UncheckedProof::new(
+            20usize,
+            vec![10usize, 20usize],
+            vec![(ProofStep::Input(1usize), 20usize)],
+        );
+        assert!(Proof::parse(pf.clone()).is_some());
+        assert!(Proof::check_parse(pf));
+    }
+    #[test]
+    fn decrement_proof_out_of_bounds_input(){
+        let pf: UncheckedProof<Decrement> = UncheckedProof::new(
+            20usize,
+            vec![10usize, 20usize],
+            vec![(ProofStep::Input(2usize), 20usize)],
+        );
+        assert!(Proof::parse(pf.clone()).is_none());
+    }
+
+    #[test]
+    fn decrement_proof_out_of_bounds_deduction(){
         let pf = make_single_step_decrement_proof(
             19usize,
             20usize,
             0usize,
             20usize,
-            0usize,
-            19usize
+            1usize,
+            19usize,
         );
-        assert!(Proof::parse(pf.clone()).is_some());
-        assert!(Proof::check_parse(pf));
+        assert!(Proof::parse(pf).is_none());
+    }
+    #[test]
+    fn decrement_proof_check_input_output(){
+        let pf = make_single_step_decrement_proof(
+            19usize,
+            20usize,
+            0usize,
+            19usize,
+            0usize,
+            19usize,
+        );
+        assert!(Proof::parse(pf).is_none());
     }
 }
