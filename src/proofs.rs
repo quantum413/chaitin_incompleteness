@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
 use std::vec::Vec;
 use impl_tools::autoimpl;
 
@@ -26,18 +26,6 @@ struct Deduction<D: DeductionRule>{
     output: D::Formula,
 }
 
-// impl<D: DeductionRule> Debug for Deduction<D> where D::Formula: Debug, D::Parameter: Debug {
-//     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-//         let Deduction {params, inputs, output} = self;
-//         f
-//             .debug_struct("Deduction")
-//             .field("params", &params)
-//             .field("inputs", &inputs)
-//             .field("output", &output)
-//             .finish()
-//     }
-// }
-
 impl<D: DeductionRule> Deduction<D> {
     fn new(params: D::Parameter, inputs: Vec<D::Formula>) -> Option<Self>
         where D::Parameter: Clone, D::Formula: Clone{
@@ -45,83 +33,62 @@ impl<D: DeductionRule> Deduction<D> {
             |output| Deduction {params, inputs, output}
         )
     }
-
-    // fn output(&self) -> &D::Formula { &self.output }
-    // fn params(&self) -> &D::Parameter { &self.params }
-    // fn inputs(&self) -> &Vec<D::Formula> { &self.inputs }
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ProofStep<P> {
+    Input(Index),
+    Deduce(P, Vec<Index>),
 }
 
-// impl<D: DeductionRule>
-//         PartialEq for Deduction<D> where D::Formula: PartialEq, D::Parameter: PartialEq, {
-//     fn eq(&self, other: &Self) -> bool {
-//         (&self.params, &self.inputs, &self.output) ==
-//             (&other.params, &other.inputs, &other.output)
-//     }
-// }
-//
-// impl<D: DeductionRule> Eq for Deduction<D> where D::Formula: Eq, D::Parameter: Eq,  {}
-
-// #[derive(Debug)]
 #[autoimpl(Debug where D::Formula: Debug, D::Parameter: Debug)]
 #[autoimpl(Clone where D::Formula: Clone, D::Parameter: Clone)]
 #[autoimpl(PartialEq where D::Formula: PartialEq, D::Parameter: PartialEq)]
 #[autoimpl(Eq where D::Formula: Eq, D::Parameter: Eq)]
 struct UncheckedProof<D: DeductionRule> {
-    result: D::Formula,
     inputs: Vec<D::Formula>,
-    proof: Vec<((D::Parameter, Vec<Index>), D::Formula)>,
+    output: D::Formula,
+    proof: Vec<(ProofStep<D::Parameter>, D::Formula)>,
 }
 
 impl<D: DeductionRule> UncheckedProof<D> {
-    fn new(result: D::Formula, inputs: Vec<D::Formula>, proof: Vec<((D::Parameter, Vec<Index>), D::Formula)>) -> Self {
-        UncheckedProof {result, inputs, proof}
+    fn new(output: D::Formula, inputs: Vec<D::Formula>, proof: Vec<(ProofStep<D::Parameter>, D::Formula)>) -> Self {
+        UncheckedProof { output, inputs, proof}
     }
 }
 
-// impl<D: DeductionRule> PartialEq for UncheckedProof<D> where D::Formula: PartialEq, D::Parameter: PartialEq{
-//     fn eq(&self, other: &Self) -> bool {
-//         self.result == other.result && self.inputs == other.inputs && self.proof == other.proof
-//     }
-// }
-//
-// impl<D: DeductionRule> Eq for UncheckedProof<D> where D::Formula: Eq, D::Parameter: Eq {}
-//
-// impl<D: DeductionRule> Clone for UncheckedProof<D> where D::Formula: Clone, D::Parameter: Clone{
-//     fn clone(&self) -> Self {
-//         UncheckedProof {
-//             result: self.result.clone(),
-//             inputs: self.inputs.clone(),
-//             proof: self.proof.clone(),
-//         }
-//     }
-// }
-// trait AbstractParser<S> : Eq + Sized{
-//     fn parse(input: &S) -> Option<Self>;
-//     fn un_parse(&self) -> S;
-//     fn check_un_parse(&self) -> bool{
-//         let parse_un_parse_op =
-//             <Self as AbstractParser<S>>::parse(
-//                 &<Self as AbstractParser<S>>::un_parse(
-//                     &self
-//                 )
-//             );
-//         if let Some(parse_un_parse) = parse_un_parse_op {
-//             self == &parse_un_parse
-//         }
-//         else {
-//             false
-//         }
-//     }
-// }
-//
-// trait StrictAbstractParser<S: Eq> : AbstractParser<S>{
-//     fn check_parse(input: &S) -> bool{
-//         if let Some(parsed) = Self::parse(input) {
-//             input == &parsed.un_parse()
-//         }
-//         else { true }
-//     }
-// }
+trait AbstractParser<S> : Sized{
+    fn parse(input: S) -> Option<Self>;
+    fn un_parse(self) -> S;
+    fn check_un_parse(self) -> bool where Self: Clone + Eq{
+        if let Some(parse_un_parse) =
+            <Self as AbstractParser<S>>::parse(
+                <Self as AbstractParser<S>>::un_parse(
+                    self.clone()
+                )
+            ){
+            parse_un_parse == self
+        }
+        else {false}
+    }
+}
+
+trait StrictAbstractParser<S: Eq + Clone> : AbstractParser<S> + Clone{
+    fn check_parse(input: S) -> bool{
+        if let Some(parsed) = Self::parse(input.clone()) {
+            input == parsed.un_parse()
+        }
+        else { true }
+    }
+}
+
+#[autoimpl(PartialEq where D::Formula: PartialEq, D::Parameter: PartialEq)]
+#[autoimpl(Debug     where D::Formula: Debug    , D::Parameter: Debug    )]
+#[autoimpl(Eq        where D::Formula: Eq       , D::Parameter: Eq       )]
+#[autoimpl(Clone     where D::Formula: Clone    , D::Parameter: Clone    )]
+enum CheckedProofStep<D: DeductionRule>{
+    Input(D::Formula, Index),
+    Deduce(Deduction<D>, Vec<Index>)
+}
 #[autoimpl(Debug where D::Formula: Debug, D::Parameter: Debug)]
 #[autoimpl(Clone where D::Formula: Clone, D::Parameter: Clone)]
 #[autoimpl(PartialEq where D::Formula: PartialEq, D::Parameter: PartialEq)]
@@ -129,80 +96,69 @@ impl<D: DeductionRule> UncheckedProof<D> {
 struct Proof<D: DeductionRule>{
     inputs: Vec<D::Formula>,
     output: D::Formula,
-    deductions: Vec<(Deduction<D>, Vec<Index>)>,
+    deductions: Vec<CheckedProofStep<D>>,
 }
 
-// impl<D: DeductionRule> Debug for Proof<D> where D::Formula: Debug, D::Parameter: Debug{
-//     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-//         let Proof {inputs, output, deductions} = self;
-//         f
-//             .debug_struct("Proof")
-//             .field("inputs", &inputs)
-//             .field("output", &output)
-//             .field("deductions", &deductions)
-//             .finish()
-//     }
-// }
-// impl <D: DeductionRule> PartialEq for Proof<D> where D::Formula: PartialEq, D::Parameter: PartialEq{
-//     fn eq(&self, other: &Self) -> bool {
-//         self.inputs == other.inputs && self.output == other.output && self.deductions == other.deductions
-//     }
-// }
-//
-// impl <D: DeductionRule> Eq for Proof<D> where D::Formula: Eq, D::Parameter: Eq {}
-
-impl <D: DeductionRule> Proof<D> {
-    fn check(pf: UncheckedProof<D>) -> Option<Self> where D::Formula: Eq, D::Parameter: Eq{
-        // let inputs : Vec<&'a D::Formula> = (&pf.inputs).into_iter().collect();
-        // let output = &pf.result; // TODO: remove unchecked usage of result
-        // let mut deductions: Vec<(Deduction<D>, Vec<Index>)> = vec![];
-        // for ((param, indices), output) in (&pf.proof).into_iter(){
-        //     let mut input_formulae = vec![];
-        //     for &i in indices{
-        //         input_formulae.push(if i < (&inputs).len() { Some(inputs[i]) }
-        //         else if i < (&inputs).len() + (&deductions).len() { Some((&deductions[i].0).get_output()) }
-        //         else { None }?);
-        //     }
-        //     let deduction = D::make_deduction(
-        //         &param,
-        //         &input_formulae,
-        //     ) ?;
-        //     deductions.push((deduction, indices.clone())); // TODO: check output
-        // }
-        // Some(Proof {
-        //     inputs,
-        //     output,
-        //     deductions,
-        // })
-        todo!()
+impl<D: DeductionRule> AbstractParser<UncheckedProof<D>> for Proof<D> where D::Formula: Clone + Eq, D::Parameter: Clone + Eq {
+    fn parse(pf: UncheckedProof<D>) -> Option<Self> {
+        let UncheckedProof{inputs, output: result, proof} = pf;
+        let mut deductions: Vec<CheckedProofStep<D>> = vec![];
+        for (step, output) in proof.into_iter(){
+            match step {
+                ProofStep::Input(i) => {
+                    // TODO: check matches step output
+                    deductions.push(CheckedProofStep::Input(inputs[i].clone(), i)); // TODO: check out of bounds
+                }
+                ProofStep::Deduce(params, indices ) => {
+                    let mut input_formulae: Vec<D::Formula> = vec![];
+                    for &i in &indices {
+                        input_formulae.push(inputs[i].clone()) // TODO: Check out of bounds
+                    }
+                    // TODO: Check outputs match
+                    deductions.push(CheckedProofStep::Deduce(
+                        D::make_deduction(params, input_formulae)?,
+                        indices
+                    ));
+                }
+            }
+            // let mut input_formulae = vec![];
+            // for &i in &indices{
+            //     input_formulae.push(if i < inputs.len() {
+            //         Some(inputs[i].clone()) }
+            //     else if i < inputs.len() + deductions.len() {
+            //         todo!()
+            //         // Some((deductions[i].0).output.clone())
+            //     }
+            //     else { todo!() }?);
+            // }
+            // let deduction = D::make_deduction(params, input_formulae)?;
+            // if deduction.output != output {return None;}
+            // deductions.push((deduction, indices));
+        }
+        Some(Proof{
+            inputs,
+            output: result,
+            deductions,
+        })
     }
 
-    fn un_check(&self) -> UncheckedProof<D> where D::Formula : Clone, D::Parameter : Clone {
+    fn un_parse(self) -> UncheckedProof<D> {
         UncheckedProof{
-            result: self.output.clone(),
-            inputs: (&self.inputs).into_iter().map(|e| e.clone()).collect(), // TODO
-            proof: vec![], // TODO
+            output: self.output,
+            inputs: self.inputs,
+            proof: self.deductions.into_iter().map(
+                |s| {
+                    match s {
+                        CheckedProofStep::Input(f, i) => (ProofStep::Input(i), f),
+                        CheckedProofStep::Deduce(d, indices) => (ProofStep::Deduce(d.params, indices), d.output),
+                    }
+                }
+            ).collect(),
         }
     }
 }
-// impl<'a, D: DeductionRule> AbstractParser<UncheckedProof<D>> for Proof<'a, D> where D::Formula: Eq, D::Parameter: Eq, {
-//     fn parse(input: &UncheckedProof<D>) -> Option<Self> {
-//         // let inputs: Vec<& D::Formula> = input.inputs.into_iter().collect();
-//         // let deductions: Vec<Deduction<D>> = vec![];
-//         // let get_formula : fn(Index) -> Option<&D::Formula> = |i: Index| {
-//         //     if i < inputs.len() { Some(inputs[i]) }
-//         //     else if i < inputs.len() + deductions.len() { Some(deductions[i].get_output()) }
-//         //     else { None }
-//         // };
-//         //
-//         // todo!()
-//         return Some(Proof{inputs: vec![], output: &input.result.clone() , deductions: vec![]})
-//     }
-//
-//     fn un_parse(&self) -> UncheckedProof<D> {
-//         todo!()
-//     }
-// }
+
+impl<D: DeductionRule> StrictAbstractParser<UncheckedProof<D>> for Proof<D> where D::Formula: Clone + Eq, D::Parameter: Clone + Eq {}
 
 #[cfg(test)]
 mod tests {
@@ -247,18 +203,53 @@ mod tests {
         assert_eq!(d_1.params, d_str);
         assert_eq!(d_1.inputs, vec![30usize]);
     }
+    #[test]
+    fn decrement_proof_check_final_output() {
+        let pf = make_single_step_decrement_proof(
+            18usize,
+            20usize,
+            0usize,
+            20usize,
+            0usize,
+            19usize
+        );
+        assert!(Proof::parse(pf).is_none());
+    }
+
+    fn make_single_step_decrement_proof(output: usize, input: usize, step_input_index: usize, step_input_output: usize, step_deduce_index: usize, step_deduce_output: usize) -> UncheckedProof<Decrement> {
+        UncheckedProof::new(
+            output,
+            vec![input],
+            vec![
+                (ProofStep::Input(step_input_index), step_input_output),
+                (ProofStep::Deduce("d".to_string(), vec![step_deduce_index]), step_deduce_output),
+            ]
+        )
+    }
 
     #[test]
-    fn decrement_proofs(){
-        let pf: UncheckedProof<Decrement> = UncheckedProof::new(
+    fn decrement_proof_check_deduction_output() {
+        let pf = make_single_step_decrement_proof(
             19usize,
-            vec![20usize],
-            vec![(
-                ("d".to_string(), vec![20usize]),
-                19usize
-            )]
+            20usize,
+            0usize,
+            20usize,
+            0usize,
+            19usize,
         );
-        let checked = Proof::check(pf.clone()).unwrap();
-        assert_eq!(pf, checked.un_check());
+        assert!(Proof::parse(pf).is_none());
+    }
+    #[test]
+    fn decrement_make_proof() {
+        let pf = make_single_step_decrement_proof(
+            19usize,
+            20usize,
+            0usize,
+            20usize,
+            0usize,
+            19usize
+        );
+        assert!(Proof::parse(pf.clone()).is_some());
+        assert!(Proof::check_parse(pf));
     }
 }
