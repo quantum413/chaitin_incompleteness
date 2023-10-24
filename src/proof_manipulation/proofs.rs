@@ -1,70 +1,21 @@
 use std::fmt::Debug;
+use std::rc::Rc;
 use std::vec::Vec;
 use derivative::Derivative;
-use crate::abstract_parser::{AbstractParser, StrictAbstractParser};
+use crate::abstract_parser::AbstractParser;
 use crate::proof_manipulation::deductions::{Deduction, DeductionRule};
+use crate::proof_manipulation::serial_proofs::{CheckedSerialProofStep, SerialProof};
 
-type Index = usize;
+pub type Index = usize;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum ProofStep<P> {
+#[derive(Derivative)]
+#[derivative(Debug(bound = "D::Formula: Debug, D::Parameter: Debug"))]
+#[derivative(Clone(bound = "D::Formula: Clone, D::Parameter: Clone"))]
+#[derivative(PartialEq(bound = "D::Formula: PartialEq, D::Parameter: PartialEq"))]
+#[derivative(Eq(bound = "D::Formula: Eq, D::Parameter: Eq"))]
+enum ProofStep<D: DeductionRule>{
     Input(Index),
-    Deduce(P, Vec<Index>),
-}
-
-#[derive(Derivative)]
-#[derivative(Debug(bound = "D::Formula: Debug, D::Parameter: Debug"))]
-#[derivative(Clone(bound = "D::Formula: Clone, D::Parameter: Clone"))]
-#[derivative(PartialEq(bound = "D::Formula: PartialEq, D::Parameter: PartialEq"))]
-#[derivative(Eq(bound = "D::Formula: Eq, D::Parameter: Eq"))]
-struct UncheckedProof<D: DeductionRule> {
-    inputs: Vec<D::Formula>,
-    output: D::Formula,
-    proof: Vec<(ProofStep<D::Parameter>, D::Formula)>,
-}
-
-impl<D: DeductionRule> UncheckedProof<D> {
-    fn new(output: D::Formula, inputs: Vec<D::Formula>, proof: Vec<(ProofStep<D::Parameter>, D::Formula)>) -> Self {
-        UncheckedProof { output, inputs, proof}
-    }
-}
-
-#[derive(Derivative)]
-#[derivative(Debug(bound = "D::Formula: Debug, D::Parameter: Debug"))]
-#[derivative(Clone(bound = "D::Formula: Clone, D::Parameter: Clone"))]
-#[derivative(PartialEq(bound = "D::Formula: PartialEq, D::Parameter: PartialEq"))]
-#[derivative(Eq(bound = "D::Formula: Eq, D::Parameter: Eq"))]
-enum CheckedProofStep<D: DeductionRule>{
-    Input(D::Formula, Index),
-    Deduce(Deduction<D>, Vec<Index>)
-}
-
-impl<D: DeductionRule> CheckedProofStep<D> {
-    fn get_output(&self) -> &D::Formula{
-        match self {
-            CheckedProofStep::Input(f, _) => {&f}
-            CheckedProofStep::Deduce(d, _) => {&d.output}
-        }
-    }
-    fn check_step(inputs: &Vec<D::Formula>, step: ProofStep<D::Parameter>) -> Option<CheckedProofStep<D>>
-        where D::Formula: Clone + Eq, D::Parameter: Clone + Eq {
-        Some(match step {
-            ProofStep::Input(i) => {
-                CheckedProofStep::Input(inputs.get(i)?.clone(), i)
-            }
-            ProofStep::Deduce(params, indices) => {
-                let mut input_formulae: Vec<D::Formula> = vec![];
-                for &i in &indices {
-                    input_formulae.push(inputs.get(i)?.clone())
-                }
-                let deduction = D::make_deduction(params, input_formulae)?;
-                CheckedProofStep::Deduce(
-                    deduction,
-                    indices
-                )
-            }
-        })
-    }
+    Deduce(Deduction<D>, Vec<Rc<ProofStep<D>>>),
 }
 
 #[derive(Derivative)]
@@ -75,50 +26,67 @@ impl<D: DeductionRule> CheckedProofStep<D> {
 struct Proof<D: DeductionRule>{
     inputs: Vec<D::Formula>,
     output: D::Formula,
-    deductions: Vec<CheckedProofStep<D>>,
+    derivation: ProofStep<D>,
 }
 
-impl<D: DeductionRule> AbstractParser<UncheckedProof<D>> for Proof<D> where D::Formula: Clone + Eq, D::Parameter: Clone + Eq {
-    fn parse(pf: UncheckedProof<D>) -> Option<Self> {
-        let UncheckedProof{inputs, output, proof} = pf;
-        if proof.len() == 0 {return None;}
-        let mut deductions: Vec<CheckedProofStep<D>> = vec![];
-        for (step, output) in proof.into_iter(){
-            let checked_step = CheckedProofStep::check_step(&inputs, step)?;
-            if *checked_step.get_output() != output {return None;}
-            deductions.push(checked_step);
-        }
-        if output != *deductions[deductions.len() - 1].get_output() {return None;}
-        Some(Proof{
-            inputs,
-            output,
-            deductions,
-        })
-    }
-
-    fn un_parse(self) -> UncheckedProof<D> {
-        UncheckedProof{
-            output: self.output,
-            inputs: self.inputs,
-            proof: self.deductions.into_iter().map(
-                |s| {
-                    match s {
-                        CheckedProofStep::Input(f, i) =>
-                            (ProofStep::Input(i), f),
-                        CheckedProofStep::Deduce(d, indices) =>
-                            (ProofStep::Deduce(d.params, indices), d.output),
-                    }
+impl<D: DeductionRule> ProofStep<D> {
+    fn add_to_proof(
+        proof: &mut Vec<CheckedSerialProofStep<D>>,
+        derivation: Rc<ProofStep<D>>,
+        inputs: &Vec<D::Formula>,
+    ) where D::Formula: Clone, D::Parameter: Clone{
+        match &*derivation {
+            ProofStep::Input(i) => {
+                proof.push(CheckedSerialProofStep::Input(inputs[*i].clone(), *i))
+            }
+            ProofStep::Deduce(d, sub) => {
+                let mut indices = Vec::<Index>::new();
+                for s in sub{
+                    ProofStep::add_to_proof(proof, s.clone(), inputs);
+                    indices.push(proof.len() - 1);
                 }
-            ).collect(),
+                proof.push(
+                    CheckedSerialProofStep::Deduce(d.clone(), indices)
+                )
+            }
         }
     }
 }
+impl<D: DeductionRule> AbstractParser<SerialProof<D>> for Proof<D> where D::Formula: Clone + Eq, D::Parameter: Clone + Eq {
+    fn parse(input: SerialProof<D>) -> Option<Self> {
+        let SerialProof { inputs, output, deductions } = input;
+        let mut steps = Vec::<Rc<ProofStep<D>>>::new();
+        for deduction in deductions {
+            let new_step =
+                match deduction {
+                    CheckedSerialProofStep::Input(_, i) => { ProofStep::Input(i)}
+                    CheckedSerialProofStep::Deduce(d, ded_indices) => {
+                        ProofStep::Deduce(
+                            d,
+                            ded_indices
+                                .into_iter()
+                                .map(|i| steps[i].clone())
+                                .collect()
+                        )
+                    }
+                };
+            steps.push(Rc::new(new_step));
+        }
+        Some(Proof {inputs, output, derivation: Rc::into_inner(steps.pop()?)?})
+    }
 
-impl<D: DeductionRule> StrictAbstractParser<UncheckedProof<D>> for Proof<D> where D::Formula: Clone + Eq, D::Parameter: Clone + Eq {}
+    fn un_parse(self) -> SerialProof<D> {
+        let Proof {inputs, output, derivation} = self;
+        let mut proof = Vec::<CheckedSerialProofStep<D>>::new();
+        ProofStep::add_to_proof(&mut proof, Rc::new(derivation), &inputs);
+        SerialProof { inputs, output, deductions: proof, }
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use crate::abstract_parser::{AbstractParser, StrictAbstractParser};
+    use crate::proof_manipulation::serial_proofs::{UncheckedSerialProof, UncheckedSerialProofStep};
     use super::super::deductions::DeductionRule;
     use super::*;
 
@@ -139,6 +107,19 @@ mod tests {
             }
         }
     }
+    #[derive(Debug)]
+    struct Product;
+
+    impl DeductionRule for Product{
+        type Formula = usize;
+        type Parameter = ();
+
+        fn deduce(_: Self::Parameter, inputs: Vec<Self::Formula>) -> Option<Self::Formula> {
+            if inputs.len() != 2 {return None;}
+            Some(inputs[0] * inputs[1])
+        }
+    }
+
     #[test]
     fn decrement_rules(){
         let d_str = "d".to_string();
@@ -171,8 +152,8 @@ mod tests {
             0usize,
             19usize
         );
-        assert!(Proof::parse(pf.clone()).is_some());
-        assert!(Proof::check_parse(pf));
+        assert!(SerialProof::parse(pf.clone()).is_some());
+        assert!(SerialProof::check_parse(pf));
     }
     #[test]
     fn decrement_proof_check_final_output() {
@@ -184,16 +165,23 @@ mod tests {
             0usize,
             19usize
         );
-        assert!(Proof::parse(pf).is_none());
+        assert!(SerialProof::parse(pf).is_none());
     }
 
-    fn make_single_step_decrement_proof(output: usize, input: usize, step_input_index: usize, step_input_output: usize, step_deduce_index: usize, step_deduce_output: usize) -> UncheckedProof<Decrement> {
-        UncheckedProof::new(
+    fn make_single_step_decrement_proof(
+        output: usize,
+        input: usize,
+        step_input_index: usize,
+        step_input_output: usize,
+        step_deduce_index: usize,
+        step_deduce_output: usize
+    ) -> UncheckedSerialProof<Decrement> {
+        UncheckedSerialProof::new(
             output,
             vec![input],
             vec![
-                (ProofStep::Input(step_input_index), step_input_output),
-                (ProofStep::Deduce("d".to_string(), vec![step_deduce_index]), step_deduce_output),
+                (UncheckedSerialProofStep::Input(step_input_index), step_input_output),
+                (UncheckedSerialProofStep::Deduce("d".to_string(), vec![step_deduce_index]), step_deduce_output),
             ]
         )
     }
@@ -208,35 +196,35 @@ mod tests {
             0usize,
             18usize,
         );
-        assert!(Proof::parse(pf).is_none());
+        assert!(SerialProof::parse(pf).is_none());
     }
     #[test]
     fn decrement_proof_zero_length() {
-        let pf: UncheckedProof<Decrement> = UncheckedProof::new(
+        let pf: UncheckedSerialProof<Decrement> = UncheckedSerialProof::new(
             20usize,
             vec![20usize],
             vec![]
         );
-        assert!(Proof::parse(pf).is_none());
+        assert!(SerialProof::parse(pf).is_none());
     }
     #[test]
     fn decrement_proof_identity(){
-        let pf: UncheckedProof<Decrement> = UncheckedProof::new(
+        let pf: UncheckedSerialProof<Decrement> = UncheckedSerialProof::new(
             20usize,
             vec![10usize, 20usize],
-            vec![(ProofStep::Input(1usize), 20usize)],
+            vec![(UncheckedSerialProofStep::Input(1usize), 20usize)],
         );
-        assert!(Proof::parse(pf.clone()).is_some());
-        assert!(Proof::check_parse(pf));
+        assert!(SerialProof::parse(pf.clone()).is_some());
+        assert!(SerialProof::check_parse(pf));
     }
     #[test]
     fn decrement_proof_out_of_bounds_input(){
-        let pf: UncheckedProof<Decrement> = UncheckedProof::new(
+        let pf: UncheckedSerialProof<Decrement> = UncheckedSerialProof::new(
             20usize,
             vec![10usize, 20usize],
-            vec![(ProofStep::Input(2usize), 20usize)],
+            vec![(UncheckedSerialProofStep::Input(2usize), 20usize)],
         );
-        assert!(Proof::parse(pf.clone()).is_none());
+        assert!(SerialProof::parse(pf.clone()).is_none());
     }
 
     #[test]
@@ -249,7 +237,7 @@ mod tests {
             1usize,
             19usize,
         );
-        assert!(Proof::parse(pf).is_none());
+        assert!(SerialProof::parse(pf).is_none());
     }
     #[test]
     fn decrement_proof_check_input_output(){
@@ -261,6 +249,24 @@ mod tests {
             0usize,
             19usize,
         );
-        assert!(Proof::parse(pf).is_none());
+        assert!(SerialProof::parse(pf).is_none());
+    }
+    fn example_proof() -> SerialProof<Decrement> {
+        let pf= UncheckedSerialProof::<Decrement>::new(
+            19usize,
+            vec![15usize, 20usize],
+            vec![
+                (UncheckedSerialProofStep::Input(1usize), 20usize),
+                (UncheckedSerialProofStep::Deduce("d".to_string(), vec![0usize]), 19usize)
+            ]
+        );
+        SerialProof::parse(pf).unwrap()
+    }
+    #[test]
+    fn decrement_abstract_proof_creation(){
+        let pf = example_proof();
+        let abstract_pf = Proof::parse(pf).unwrap();
+        assert!(Proof::check_un_parse(abstract_pf.clone()));
+        assert!(SerialProof::check_un_parse(Proof::un_parse(abstract_pf.clone())));
     }
 }
