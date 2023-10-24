@@ -20,8 +20,8 @@ pub trait DeductionRule {
 #[derivative(Eq(bound = "D::Formula: Eq, D::Parameter: Eq"))]
 pub struct Deduction<D: DeductionRule>{
     pub(in crate::proof_manipulation) params: D::Parameter,
-    pub inputs: Vec<D::Formula>,
-    pub output: D::Formula,
+    pub(in crate::proof_manipulation) inputs: Vec<D::Formula>,
+    pub(in crate::proof_manipulation) output: D::Formula,
 }
 
 impl<D: DeductionRule> Deduction<D> {
@@ -31,4 +31,21 @@ impl<D: DeductionRule> Deduction<D> {
             |output| Deduction {params, inputs, output}
         )
     }
+    pub fn params(&self) -> &D::Parameter {&self.params}
+    pub fn inputs(&self) -> &Vec<D::Formula> {&self.inputs}
+    pub fn output(&self) -> &D::Formula {&self.output}
+}
+
+pub trait FormalDeduction {
+    type Formula;
+    fn inputs(&self) -> &Vec<Self::Formula>;
+    fn output(&self) -> &Self::Formula;
+}
+
+impl<D: DeductionRule> FormalDeduction for Deduction<D> {
+    type Formula = D::Formula;
+
+    fn inputs(&self) -> &Vec<Self::Formula> {self.inputs()}
+
+    fn output(&self) -> &Self::Formula {self.output()}
 }
