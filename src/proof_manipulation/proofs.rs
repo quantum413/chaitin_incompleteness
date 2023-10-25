@@ -177,6 +177,36 @@ impl<FD: FormalDeduction> Proof<FD> {
             }
         }
     }
+
+    pub fn compose(inputs: Vec<FD::Formula>, sub_proofs: Vec<Proof<FD>>, top_proof: Proof<FD>)
+        -> Option<Proof<FD>> where FD::Formula: Clone + Eq, FD: Clone {
+        let top_inputs = top_proof.inputs().clone();
+        match top_proof.un_step() {
+            ProofStep::CopyInput(step) => {
+                if sub_proofs.iter().any(|p| p.inputs() != &inputs) {return None;}
+                if sub_proofs.iter().map(|p| p.output())
+                    .ne(top_inputs.iter()) {return None;}
+                Some(sub_proofs[step.index()].clone())
+            }
+            ProofStep::Deduce(step) => {
+                let mut semi_sub_proofs = Vec::<Proof<FD>>::new();
+                for p in step.sub_proofs.iter() {
+                    semi_sub_proofs.push(
+                        Proof::compose(
+                            inputs.clone(),
+                            sub_proofs.clone(),
+                            p.clone(),
+                        )?
+                    )
+                }
+                Proof::deduce(
+                    inputs.clone(),
+                    semi_sub_proofs,
+                    step.deduction().clone(),
+                )
+            }
+        }
+    }
 }
 
 impl<FD: FormalDeduction> ProofStep<FD> {
@@ -203,14 +233,14 @@ impl<FD: FormalDeduction> ProofStep<FD> {
 }
 
 #[cfg(test)]
-pub(in crate::proof_manipulation) mod tests {
+pub(in crate) mod tests {
     use crate::abstract_parser::AbstractParser;
     use crate::proof_manipulation::serial_proofs::{UncheckedSerialProof, UncheckedSerialProofStep};
     use super::super::deductions::DeductionRule;
     use super::*;
 
     #[derive(Debug)]
-    pub(in crate::proof_manipulation) struct Decrement;
+    pub(in crate) struct Decrement;
 
     impl DeductionRule for Decrement{
         type Formula = usize;
@@ -227,7 +257,7 @@ pub(in crate::proof_manipulation) mod tests {
         }
     }
     #[derive(Debug)]
-    struct Product;
+    pub(in crate) struct Product;
 
     impl DeductionRule for Product{
         type Formula = usize;
@@ -284,5 +314,83 @@ pub(in crate::proof_manipulation) mod tests {
         assert!(Proof::deduce(input_1.clone(), vec![pf_1_1.clone(), pf_1_1.clone()], ded.clone()).is_none());
         assert_eq!(pf.clone().un_step().step(), pf.clone());
         assert_eq!(pf_1_1.clone().un_step().step(), pf_1_1.clone());
+    }
+    pub(in crate) fn make_prod_150() -> Proof<Deduction<Product>> {
+        let input_1 = vec![2usize, 3usize, 5usize];
+        Proof::deduce(
+            input_1.clone(),
+            vec![
+                Proof::deduce(
+                    input_1.clone(),
+                    vec![
+                        Proof::deduce(
+                            input_1.clone(),
+                            vec![
+                                Proof::copy_input(input_1.clone(), 0).unwrap(),
+                                Proof::copy_input(input_1.clone(), 1).unwrap(),
+                            ],
+                            Product::make_deduction((), vec![2usize, 3usize]).unwrap()
+                        ).unwrap(),
+                        Proof::copy_input(input_1.clone(), 2).unwrap(),
+                    ],
+                    Product::make_deduction((), vec![6usize, 5usize]).unwrap(),
+                ).unwrap(),
+                Proof::copy_input(input_1.clone(), 2).unwrap(),
+            ],
+            Product::make_deduction((), vec![30usize, 5usize]).unwrap(),
+        ).unwrap()
+    }
+    #[test]
+    pub fn proof_chaining(){
+        let input_1 = vec![2usize, 3usize, 5usize];
+        let pf_2: Proof<Deduction<Product>> = Proof::copy_input(input_1.clone(), 0usize).unwrap();
+        let pf_3: Proof<Deduction<Product>> = Proof::copy_input(input_1.clone(), 1usize).unwrap();
+        let pf_5: Proof<Deduction<Product>> = Proof::copy_input(input_1.clone(), 2usize).unwrap();
+        let pf_6 = Proof::deduce(
+            input_1.clone(),
+            vec![pf_2.clone(), pf_3.clone()],
+            Product::make_deduction((), vec![2usize, 3usize]).unwrap()
+        ).unwrap();
+        assert_eq!(*pf_6.output(), 6usize);
+        assert_eq!(*pf_6.inputs(), input_1.clone());
+
+        let input_sub = vec![6usize, 5usize];
+        let pf_sub_30 = Proof::deduce(
+            input_sub.clone(),
+            vec![
+                Proof::copy_input(input_sub.clone(), 0).unwrap(),
+                Proof::copy_input(input_sub.clone(), 1).unwrap(),
+            ],
+            Product::make_deduction((), vec![6usize, 5usize]).unwrap(),
+        ).unwrap();
+        assert_eq!(*pf_sub_30.output(), 30usize);
+        assert_eq!(*pf_sub_30.inputs(), input_sub.clone());
+
+        let pf_30 = Proof::compose(
+            input_1.clone(),
+            vec![
+                pf_6.clone(),
+                pf_5.clone(),
+            ],
+            pf_sub_30.clone(),
+        ).unwrap();
+        assert_eq!(pf_30.inputs(), &input_1);
+        assert_eq!(*pf_30.output(), 30);
+
+        let pf_sub_150 = Proof::deduce(
+            input_sub.clone(),
+            vec![pf_sub_30, Proof::copy_input(input_sub.clone(), 1).unwrap()],
+            Product::make_deduction((), vec![30usize, 5usize]).unwrap(),
+        ).unwrap();
+        let pf_150 = Proof::compose(
+            input_1.clone(),
+            vec![
+                pf_6.clone(),
+                pf_5.clone(),
+            ],
+            pf_sub_150.clone()
+        ).unwrap();
+        assert_eq!(pf_150.inputs(), &input_1);
+        assert_eq!(*pf_150.output(), 150);
     }
 }
