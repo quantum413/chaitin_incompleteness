@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 use derivative::Derivative;
-use crate::abstract_parser::{AbstractParser, StrictAbstractParser};
+use crate::functors::abstract_parser::{AbstractParser, StrictAbstractParser};
 use crate::proof_manipulation::deductions::{Deduction, DeductionRule};
 use crate::proof_manipulation::proofs::Index;
 
@@ -118,7 +118,7 @@ impl<D: DeductionRule> StrictAbstractParser<UncheckedSerialProof<D>> for SerialP
 
 #[cfg(test)]
 mod tests {
-    use crate::abstract_parser::*;
+    use crate::functors::abstract_parser::*;
     use crate::proof_manipulation::deductions::*;
     use crate::proof_manipulation::serial_proofs::*;
     use crate::proof_manipulation::proofs::tests::Decrement;

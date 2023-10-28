@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::rc::Rc;
 use std::vec::Vec;
 use derivative::Derivative;
-use crate::abstract_parser::AbstractParser;
+use crate::functors::abstract_parser::AbstractParser;
 use crate::proof_manipulation::deductions::{Deduction, DeductionRule, FormalDeduction};
 // use crate::proof_manipulation::proofs::ProofStep::CopyInput;
 use crate::proof_manipulation::serial_proofs::{CheckedSerialProofStep, SerialProof};
@@ -21,7 +21,7 @@ enum InternalProofStep<FD: FormalDeduction>{
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = "FD::Formula: Debug, FD: Debug"))]
-#[derivative(Clone(bound = "FD::Formula: Clone, FD: Clone"))]
+#[derivative(Clone(bound = "FD::Formula: Clone"))]
 #[derivative(PartialEq(bound = "FD::Formula: PartialEq, FD: PartialEq"))]
 #[derivative(Eq(bound = "FD::Formula: Eq, FD: Eq"))]
 pub struct Proof<FD: FormalDeduction>{
@@ -234,7 +234,7 @@ impl<FD: FormalDeduction> ProofStep<FD> {
 
 #[cfg(test)]
 pub(in crate) mod tests {
-    use crate::abstract_parser::AbstractParser;
+    use crate::functors::abstract_parser::AbstractParser;
     use crate::proof_manipulation::serial_proofs::{UncheckedSerialProof, UncheckedSerialProofStep};
     use super::super::deductions::DeductionRule;
     use super::*;
