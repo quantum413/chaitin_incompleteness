@@ -304,14 +304,11 @@ mod tests {
     }
     #[test]
     fn stack_drop_breaker() {
-        println!("?????");
         std::io::stdout().flush().unwrap();
         let tree = fib_tree(1_usize << 16);
         let d = UnRecursiveUnpack(tree.clone());
         assert!(matches!(&*tree.step, BinaryTreeStep::Node(_, _)));
-        println!("dropping tree");
         drop(tree);
-        println!("dropping start");
         drop(d);
     }
     #[test]

@@ -3,6 +3,7 @@ use std::rc::Rc;
 use std::vec::Vec;
 use derivative::Derivative;
 use crate::functors::abstract_parser::AbstractParser;
+use crate::functors::recursive::UnpackRc;
 use crate::proof_manipulation::deductions::{Deduction, DeductionRule, FormalDeduction};
 // use crate::proof_manipulation::proofs::ProofStep::CopyInput;
 use crate::proof_manipulation::serial_proofs::{CheckedSerialProofStep, SerialProof};
@@ -14,9 +15,17 @@ pub type Index = usize;
 #[derivative(Clone(bound = "FD::Formula: Clone, FD: Clone"))]
 #[derivative(PartialEq(bound = "FD::Formula: PartialEq, FD: PartialEq"))]
 #[derivative(Eq(bound = "FD::Formula: Eq, FD: Eq"))]
-enum InternalProofStep<FD: FormalDeduction>{
+enum VeryInternalProofStep<FD: FormalDeduction> {
     Input(Index),
     Deduce(FD, Vec<Rc<InternalProofStep<FD>>>),
+}
+#[derive(Derivative)]
+#[derivative(Debug(bound = "FD::Formula: Debug, FD: Debug"))]
+#[derivative(Clone(bound = "FD::Formula: Clone, FD: Clone"))]
+#[derivative(PartialEq(bound = "FD::Formula: PartialEq, FD: PartialEq"))]
+#[derivative(Eq(bound = "FD::Formula: Eq, FD: Eq"))]
+pub struct InternalProofStep<FD: FormalDeduction>{
+    internal: VeryInternalProofStep<FD>,
 }
 
 #[derive(Derivative)]
@@ -59,11 +68,11 @@ impl<D: DeductionRule> InternalProofStep<Deduction<D>> where D::Formula: Clone, 
         derivation: Rc<InternalProofStep<Deduction<D>>>,
         inputs: &Vec<D::Formula>
     ) {
-        match &*derivation {
-            InternalProofStep::Input(i) => {
+        match &((*derivation).internal) {
+            VeryInternalProofStep::Input(i) => {
                 proof.push(CheckedSerialProofStep::Input(inputs[*i].clone(), *i))
             }
-            InternalProofStep::Deduce(d, sub) => {
+            VeryInternalProofStep::Deduce(d, sub) => {
                 let mut indices = Vec::<Index>::new();
                 for s in sub{
                     InternalProofStep::add_to_proof(proof, s.clone(), inputs);
@@ -78,9 +87,9 @@ impl<D: DeductionRule> InternalProofStep<Deduction<D>> where D::Formula: Clone, 
 }
 impl<FD: FormalDeduction> InternalProofStep<FD> {
     fn get_output<'a, 'b: 'a, 'c: 'a>(&'b self,inputs: &'c Vec<FD::Formula>) -> &'a FD::Formula{
-        match self {
-            InternalProofStep::Input(i) => {&inputs[*i]}
-            InternalProofStep::Deduce(d, _) => {&d.output()}
+        match &self.internal {
+            VeryInternalProofStep::Input(i) => {&inputs[*i]}
+            VeryInternalProofStep::Deduce(d, _) => {&d.output()}
         }
     }
 }
@@ -91,9 +100,9 @@ impl<D: DeductionRule> AbstractParser<SerialProof<D>> for Proof<Deduction<D>> wh
         for deduction in deductions {
             let new_step =
                 match deduction {
-                    CheckedSerialProofStep::Input(_, i) => { InternalProofStep::Input(i)}
+                    CheckedSerialProofStep::Input(_, i) => { VeryInternalProofStep::Input(i)}
                     CheckedSerialProofStep::Deduce(d, ded_indices) => {
-                        InternalProofStep::Deduce(
+                        VeryInternalProofStep::Deduce(
                             d,
                             ded_indices
                                 .into_iter()
@@ -102,7 +111,7 @@ impl<D: DeductionRule> AbstractParser<SerialProof<D>> for Proof<Deduction<D>> wh
                         )
                     }
                 };
-            steps.push(Rc::new(new_step));
+            steps.push(Rc::new(InternalProofStep{ internal: new_step}));
         }
         Some(Proof {inputs, output, derivation: steps.pop()?})
     }
@@ -126,10 +135,10 @@ impl<FD: FormalDeduction> Proof<FD> {
         Proof {
             inputs,
             output: deduction.output().clone(),
-            derivation: Rc::new(InternalProofStep::Deduce(
+            derivation: Rc::new( InternalProofStep {internal: VeryInternalProofStep::Deduce(
                 deduction,
                 sub_proofs.into_iter().map(|p| p.derivation).collect(),
-            )),
+            )}),
         }
     }
 
@@ -138,7 +147,7 @@ impl<FD: FormalDeduction> Proof<FD> {
         Proof {
             inputs,
             output,
-            derivation: Rc::new(InternalProofStep::Input(index)),
+            derivation: Rc::new( InternalProofStep {internal: VeryInternalProofStep::Input(index)}),
         }
     }
 
@@ -147,8 +156,8 @@ impl<FD: FormalDeduction> Proof<FD> {
 
     pub fn un_step(self) -> ProofStep<FD> where FD::Formula: Clone, FD: Clone{
         let Proof{inputs, output: _, derivation} = self;
-        match &*derivation {
-            InternalProofStep::Input(index) => {
+        match &((*derivation).internal) {
+            VeryInternalProofStep::Input(index) => {
                 ProofStep::CopyInput(
                     CopyInputStep{
                         inputs,
@@ -156,7 +165,7 @@ impl<FD: FormalDeduction> Proof<FD> {
                     }
                 )
             }
-            InternalProofStep::Deduce(d, v) => {
+            VeryInternalProofStep::Deduce(d, v) => {
                 let sub_proofs = v
                     .iter()
                     .map(|e|
@@ -205,6 +214,33 @@ impl<FD: FormalDeduction> Proof<FD> {
                     step.deduction().clone(),
                 )
             }
+        }
+    }
+}
+
+pub enum ProofStepData<FD> {
+    CopyInputStep(Index),
+    DeduceStep(FD),
+}
+
+impl<FD: FormalDeduction> UnpackRc for Proof<FD> where FD::Formula: Clone, FD: Clone {
+    type StepData = (Vec<FD::Formula>, ProofStepData<FD>);
+    type StepRef = InternalProofStep<FD>;
+    fn rc(&self) -> &Rc<Self::StepRef> {
+        &self.derivation
+    }
+
+    fn un_step_data(&self) -> Self::StepData {
+        match &(*self.derivation).internal {
+            VeryInternalProofStep::Input(i) => { (self.inputs.clone(), ProofStepData::CopyInputStep(*i)) }
+            VeryInternalProofStep::Deduce(d, _) => { (self.inputs.clone(), ProofStepData::DeduceStep(d.clone())) }
+        }
+    }
+
+    fn un_step_subs(&self) -> Vec<Self> {
+        match self.clone().un_step() {
+            ProofStep::CopyInput(_) => { vec![] }
+            ProofStep::Deduce(step) => { step.sub_proofs }
         }
     }
 }
