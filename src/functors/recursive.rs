@@ -1,185 +1,181 @@
-use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
-use std::iter::zip;
 use std::rc::Rc;
+use std::hash::{Hash, Hasher};
+use std::collections::HashMap;
+use std::io::Write;
+use crate::functors::unpack::Unpack;
 
-/* WARNING: EVIL SPAGHETTI AHEAD*/
-
-pub trait Unpack: Sized {
+pub trait UnpackRc: Sized{
     type StepData;
-    fn un_step(self) -> (Self::StepData, Vec<Self>);
-
-    fn build_no_clone<T, F>(self, f: F) -> T where F: Fn(Self::StepData, Vec<T>) -> T {
-        self.build_f_ref(&f)
-    }
-    fn build<T, F>(self, f: F) -> T where F: Fn(Self::StepData, Vec<T>) -> T, T: Clone {
-        self.build_no_clone(f)
-    }
-}
-
-trait UnpackImpl: Unpack{
-    fn build_f_ref<T, F>(self, f: &F) -> T where F: Fn(Self::StepData, Vec<T>) -> T {
-        let (data, sub_objects) = self.un_step();
-        let mut sub_ts = vec![];
-        for x in sub_objects.into_iter(){
-            sub_ts.push(x.build_f_ref(f));
-        }
-        f(data, sub_ts)
-    }
-}
-
-impl<T: Unpack> UnpackImpl for T {}
-
-pub trait UnpackRc: Sized {
-    type StepData;
-    type Step;
-    fn get_rc(&self) -> Rc<Self::Step>;
-    fn get_rc_mut(&mut self) -> &mut Rc<Self::Step>;
-    fn into_rc(self) -> Rc<Self::Step>{
-        (&self).get_rc().clone()
-    }
-    fn un_step_data(this: &Self::Step) -> Self::StepData;
-    fn un_step_subs(this: &Self::Step) -> Vec<Self>;
+    type StepRef;
+    fn rc(&self) -> &Rc<Self::StepRef>;
+    fn un_step_data(&self) -> Self::StepData;
+    fn un_step_subs(&self) -> Vec<Self>;
 }
 
 pub trait UnpackRcDrop: UnpackRc {
-
-    fn drop_reference(top_ptr: &mut Rc<Self::Step>) {
+    fn drop_impl(&mut self) {
         // If you force the sub-objects to be dropped after the top,
         // there is no possibility of Rc drop recursion.
-        if Rc::strong_count(top_ptr) == 1 {
-            let mut stack = vec![top_ptr.clone()];
-            while let Some(mut ptr) = stack.pop() {
-                if Rc::ptr_eq(&ptr, top_ptr) && Rc::strong_count(&ptr) == 2 {
-                    ptr = Self::shuffle_pointer(top_ptr);
-                }
-                if let Some(step) = Rc::into_inner(ptr) {
-                    let subs= Self::un_step_subs(&step);
-                    // step deleted at this point
-                    for sub in subs {
-                        stack.push(sub.into_rc());
-                    }
+        if Rc::strong_count(self.rc()) == 1 {
+            let maybe_this = self.shuffle_pointer();
+            if let Some(this) = maybe_this {
+                let this_ptr = this.rc().clone();
+                let mut stack = vec![(this, this_ptr)];
+                while let Some((x, ptr)) = stack.pop() {
+                    self.drop_impl_step(&mut stack, x, ptr)
                 }
             }
         }
     }
 }
-trait UnpackRcDropImpl: UnpackRcDrop {
-    fn shuffle_pointer(ptr: &mut Rc<Self::Step>) -> Rc<Self::Step>{
-        let subs = Self::un_step_subs(ptr);
-        if let Some(sub) = subs.last() {
-            std::mem::replace::<Rc<Self::Step>>(ptr, sub.get_rc())
-        }
-        else {
-            ptr.clone()
-        }
+struct StepState<R, B: UnpackRc> {
+    results: Vec<R>,
+    step_data: B::StepData,
+    subs: <Vec<B> as IntoIterator>::IntoIter,
+}
+enum State<R, B: UnpackRc> {
+    Open(B),
+    OpenStep(StepState<R, B>),
+    CloseStep(Rc<B::StepRef>, StepState<R, B>),
+}
+struct HashWrapper<R>(Rc<R>);
+impl<R> Hash for HashWrapper<R> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        std::ptr::hash(&*self.0, state)
     }
 }
-
-impl<T: UnpackRc> Unpack for T {
-    type StepData = T::StepData;
+impl<R> PartialEq for HashWrapper<R> {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+impl<R> Eq for HashWrapper<R> {}
+impl<A: UnpackRcDrop> Unpack for A {
+    type StepData = A::StepData;
 
     fn un_step(self) -> (Self::StepData, Vec<Self>) {
-        (Self::un_step_data(&self.get_rc()), Self::un_step_subs(&self.get_rc()))
+        (A::un_step_data(&self), A::un_step_subs(&self))
     }
 
-    fn build_no_clone<S, F>(self, f: F) -> S where F: Fn(Self::StepData, Vec<S>) -> S,{
-        enum State<R: UnpackRc> {
-            Open(Rc<R::Step>, usize, usize), // step, return_pointer, index
-            Close(R::StepData ,usize, usize, usize), // arguments pointer, return pointers, index
-        }
-        let mut results: Vec<Vec<Option<S>>> = vec![vec![None]];
-        let mut stack: Vec<State<T>> = vec![State::Open(self.into_rc(), 0, 0)];
-        while let Some(item) = stack.pop() {
-            match item {
-                State::Open(step_ptr, ret, index) => {
-                    let arg = results.len();
-                    stack.push(State::Close(
-                        T::un_step_data(&*step_ptr),
-                        arg,
-                        ret,
-                        index,
-                    ));
-                    let subs = T::un_step_subs(&*step_ptr);
-                    results.push(
-                        std::iter::repeat_with(|| None).take(subs.len()).collect()
-                    );
-                    for (index, sub) in zip(0.., subs) {
-                        stack.push(State::Open(
-                            sub.into_rc(),
-                            arg,
-                            index,
-                        ));
-                    }
-                }
-                State::Close(step_data, args, ret, index) => {
-                    results[ret][index] = Some(
-                        f(
-                            step_data,
-                            results[args]
-                                .iter_mut()
-                                .map(
-                                    |p| p.take().unwrap()
-                                )
-                                .collect()
-                        )
-                    )
-                }
-            }
-        }
-        results[0][0].take().unwrap()
-    }
-
-    fn build<S, F>(self, f: F) -> S where F: Fn(Self::StepData, Vec<S>) -> S, S: Clone {
-        struct HashWrapper<R>(Rc<R>);
-        impl<R> Hash for HashWrapper<R> {
-            fn hash<H: Hasher>(&self, state: &mut H) {
-                std::ptr::hash(&*self.0, state)
-            }
-        }
-        impl<R> PartialEq for HashWrapper<R> {
-            fn eq(&self, other: &Self) -> bool {
-                Rc::ptr_eq(&self.0, &other.0)
-            }
-        }
-        impl<R> Eq for HashWrapper<R> {}
-        let mut results: HashMap<HashWrapper<T::Step>, S> = HashMap::new();
-
-        enum State<R: UnpackRc> {
-            Open(Rc<R::Step>),
-            Close(Rc<R::Step>, R::StepData, Vec<Rc<R::Step>>),
-        }
-        // results.insert(HashWrapper(self.get_rc().clone()), vec![None]);
-        let top_ptr = self.into_rc();
-        let mut stack:Vec<State<T>> = vec![State::Open(top_ptr.clone())];
+    fn build_no_clone<T, F>(self, f: F) -> T where F: Fn(Self::StepData, Vec<T>) -> T {
+        let mut stack = vec![State::<T, A>::Open(self)];
+        let mut ret: Option<T> = None;
         while let Some(state) = stack.pop() {
             match state {
-                State::Open(ptr) => {
-                    if ! results.contains_key(&HashWrapper::<T::Step>(Rc::<T::Step>::clone(&ptr))) {
-                        let dat = T::un_step_data(&*ptr);
-                        let subs: Vec<Rc<T::Step>> = T::un_step_subs(&*ptr)
-                            .into_iter()
-                            .map(|e| e.into_rc())
-                            .collect();
-                        stack.push(State::Close(ptr.clone(), dat, subs.clone()));
-                        for sub in subs {
-                            stack.push(State::Open(sub));
-                        }
-                    }
+                State::Open(x) => { Self::handle_open_state(&mut stack, x); }
+                State::OpenStep(state) => {
+                    Self::handle_open_step_state(&f, &mut stack, &mut ret, state);
                 }
-                State::Close(ptr, dat, subs) => {
-                    results.insert(
-                        HashWrapper(ptr.clone()),
-                        f(dat,
-                          subs.into_iter()
-                              .map(|p| results[&HashWrapper(p)].clone())
-                              .collect()
-                        )
-                    );
+                State::CloseStep(_, state) => {
+                    let returned = ret.take().unwrap();
+                    Self::handle_close_step_state(&mut stack, state, returned);
                 }
             }
         }
-        results[&HashWrapper(top_ptr)].clone()
+        ret.take().unwrap()
+    }
+
+    fn build<T, F>(self, f: F) -> T where F: Fn(Self::StepData, Vec<T>) -> T, T: Clone {
+        let mut result_table: HashMap<HashWrapper<A::StepRef>, T> = HashMap::new();
+        let mut stack = vec![State::<T, A>::Open(self)];
+        let mut ret: Option<T> = None;
+        while let Some(state) = stack.pop() {
+            match state {
+                State::Open(x) => {
+                    let key = HashWrapper::<A::StepRef>(x.rc().clone());
+                    if let Some(to_ret) = result_table.get(&key) {
+                        debug_assert!(ret.replace(to_ret.clone()).is_none());
+                    } else {
+                        Self::handle_open_state(&mut stack, x);
+                    }
+                }
+                State::OpenStep(state) => {
+                    Self::handle_open_step_state(&f, &mut stack, &mut ret, state);
+                }
+                State::CloseStep(seek, state) => {
+                    let returned = ret.take().unwrap();
+                    result_table.insert(HashWrapper::<A::StepRef>(seek), returned.clone());
+                    Self::handle_close_step_state(&mut stack, state, returned);
+                }
+            }
+        }
+        ret.take().unwrap()
+    }
+}
+
+trait UnpackRcDropImpl: UnpackRcDrop {
+    fn update_stack(&self, stack: &mut Vec<(Self, Rc<Self::StepRef>)>) {
+        let mut subs = self.un_step_subs();
+        while let Some(x) = subs.pop() {
+            let x_ptr = x.rc().clone();
+            stack.push((x, x_ptr));
+        }
+    }
+    fn shuffle_pointer(&mut self) -> Option<Self>{
+        let mut subs = Self::un_step_subs(self);
+        if let Some(sub) = subs.pop() {
+            Some(std::mem::replace::<Self>(self, sub))
+        }
+        else { None }
+    }
+    fn drop_impl_step(
+        &mut self,
+        mut stack: &mut Vec<(Self, Rc<Self::StepRef>)>,
+        x: Self,
+        ptr: Rc<Self::StepRef>
+    ) {
+        if Rc::ptr_eq(self.rc(), x.rc()) && Rc::strong_count(&ptr) == 3 {
+            self.shuffle_pointer();
+        }
+        if Rc::strong_count(&ptr) != 2 {
+            return;
+        }
+        x.update_stack(&mut stack);
+        drop(x);
+        drop(ptr);
+    }
+    fn handle_open_state<T>(stack: &mut Vec<State<T, Self>>, x: Self) {
+        stack.push(
+            State::OpenStep(
+                StepState {
+                    results: vec![],
+                    step_data: x.un_step_data(),
+                    subs: x.un_step_subs().into_iter(),
+                }
+            )
+        );
+    }
+    fn handle_open_step_state<T, F>(
+        f: &F,
+        stack: &mut Vec<State<T, Self>>,
+        ret: &mut Option<T>,
+        state: StepState<T, Self>
+    ) where F: Fn(<Self as UnpackRc>::StepData, Vec<T>) -> T {
+        let StepState { results, step_data, mut subs } = state;
+        if let Some(sub) = subs.next() {
+            stack.push(
+                State::CloseStep(
+                    sub.rc().clone(),
+                    StepState { results, step_data, subs, }
+                )
+            );
+            stack.push(State::Open(sub));
+        } else {
+            debug_assert!(ret.replace(f(step_data, results)).is_none());
+        }
+    }
+    fn handle_close_step_state<T>(
+        stack: &mut Vec<State<T, Self>>,
+        state: StepState<T, Self>,
+        returned: T
+    ) {
+        let StepState {
+            mut results,
+            step_data,
+            subs,
+        } = state;
+        results.push(returned);
+        stack.push(State::OpenStep(StepState { results, step_data, subs }));
     }
 }
 impl<T: UnpackRcDrop> UnpackRcDropImpl for T {}
@@ -192,7 +188,7 @@ macro_rules! unpack_drop {
         for $name $(< $( $lt ),+ >)?
         {
             fn drop(&mut self) {
-                Self::drop_reference(self.get_rc_mut());
+                Self::drop_impl(self);
             }
         }
     }
@@ -202,6 +198,7 @@ macro_rules! unpack_drop {
 mod tests {
     use std::rc::Rc;
     use ntest::timeout;
+    use crate::functors::unpack::Unpack;
     use super::*;
     #[derive(Debug, PartialEq, Eq)]
     enum BinaryTreeStep{
@@ -245,26 +242,22 @@ mod tests {
             }
         }
     }
-
+    #[derive(Clone)]
     struct UnRecursiveUnpack(BinaryTree);
-    unpack_drop!(UnRecursiveUnpack);
     impl UnpackRc for UnRecursiveUnpack {
         type StepData = BinaryTreeStepData;
-        type Step = BinaryTreeStep;
-        fn get_rc(&self) -> Rc<Self::Step> {
-            (&self.0.step).clone()
+        type StepRef = BinaryTreeStep;
+        fn rc(&self) -> &Rc<Self::StepRef> {
+            &self.0.step
         }
-        fn get_rc_mut(&mut self) -> &mut Rc<Self::Step> {
-            &mut self.0.step
-        }
-        fn un_step_data(this: &Self::Step) -> Self::StepData {
-            match this {
+        fn un_step_data(&self) -> Self::StepData {
+            match *self.0.step {
                 BinaryTreeStep::Leaf => { BinaryTreeStepData::Leaf }
                 BinaryTreeStep::Node(_, _) => { BinaryTreeStepData::Node }
             }
         }
-        fn un_step_subs(this: &Self::Step) -> Vec<Self> {
-            match this {
+        fn un_step_subs(&self) -> Vec<Self> {
+            match &*self.0.step {
                 BinaryTreeStep::Leaf => { vec![] }
                 BinaryTreeStep::Node(l, r) => {
                     vec![
@@ -275,6 +268,7 @@ mod tests {
             }
         }
     }
+    unpack_drop!(UnRecursiveUnpack);
 
     fn fib(n: usize) -> u128 {
         if n == 0 { return 0;}
@@ -310,19 +304,23 @@ mod tests {
     }
     #[test]
     fn stack_drop_breaker() {
+        println!("?????");
+        std::io::stdout().flush().unwrap();
         let tree = fib_tree(1_usize << 16);
         let d = UnRecursiveUnpack(tree.clone());
         assert!(matches!(&*tree.step, BinaryTreeStep::Node(_, _)));
+        println!("dropping tree");
         drop(tree);
+        println!("dropping start");
         drop(d);
     }
     #[test]
     fn stack_build_breaker() {
         let depth = 1_usize << 16;
-        let tree = unary_tree(depth);
-        assert_eq!(UnRecursiveUnpack(tree.clone()).build(depth_step), depth);
-        assert_eq!(UnRecursiveUnpack(tree.clone()).build_no_clone(depth_step), depth);
-        drop(UnRecursiveUnpack(tree));
+        let tree = UnRecursiveUnpack(unary_tree(depth));
+        assert_eq!(tree.clone().build(depth_step), depth);
+        assert_eq!(tree.clone().build_no_clone(depth_step), depth);
+        drop(tree);
     }
     #[test]
     #[timeout(100)]
