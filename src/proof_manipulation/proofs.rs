@@ -3,7 +3,7 @@ use std::rc::Rc;
 use std::vec::Vec;
 use derivative::Derivative;
 use crate::functors::abstract_parser::AbstractParser;
-use crate::functors::recursive::{UnpackRc, UnpackRcDrop};
+use crate::functors::recursive::{UnpackRc};
 use crate::functors::unpack::Unpack;
 use crate::proof_manipulation::deductions::{Deduction, DeductionRule, FormalDeduction};
 use crate::proof_manipulation::serial_proofs::{CheckedSerialProofStep, SerialProof};
