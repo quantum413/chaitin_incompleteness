@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 use crate::proof_manipulation::deductions::FormalDeduction;
 use crate::proof_manipulation::proofs::{Proof, ProofStep};
 
-pub trait Reduction<D1: FormalDeduction, D2: FormalDeduction<Formula = D1::Formula>> {
+pub trait Reduction<D1: FormalDeduction + Clone, D2: FormalDeduction<Formula = D1::Formula> + Clone> where D1::Formula: Clone{
     fn reduce(d: D1) -> Proof<D2>;
     fn check_reduce(d: D1) -> bool where D1: Clone, D2::Formula :Eq, D2: Eq{
         let pf = Self::reduce(d.clone());
@@ -33,7 +33,7 @@ pub trait Reduction<D1: FormalDeduction, D2: FormalDeduction<Formula = D1::Formu
 }
 
 pub struct Reflexive<D: FormalDeduction> {_marker: PhantomData<D>}
-impl<D: FormalDeduction> Reduction<D, D> for Reflexive<D> where D::Formula: Clone + Eq{
+impl<D: FormalDeduction> Reduction<D, D> for Reflexive<D> where D::Formula: Clone + Eq, D: Clone{
     fn reduce(d: D) -> Proof<D> {
         let inputs = d.inputs().clone();
         let input_proofs =

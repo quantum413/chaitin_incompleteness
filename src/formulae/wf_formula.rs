@@ -1,6 +1,7 @@
 use std::rc::Rc;
 use derivative::Derivative;
 use std::fmt::Debug;
+use crate::functors::recursive::UnpackRc;
 
 pub type Arity = usize;
 pub trait WFFNames {
@@ -65,7 +66,7 @@ impl<N: WFFNames> WFTNames for N {
 //         {}
 //     };
 // }
-//
+
 // macro_rules! wft_bounds {
 //     ($N: ty, $trait_name: ident) => {
 //         $N::Variable: $trait_name,
@@ -88,7 +89,7 @@ impl<N: WFFNames> WFTNames for N {
 //         $N::Quantifier: $trait_name
 //     };
 // }
-//
+
 // lumped_trait!(WFTClone, WFFClone, Clone);
 // lumped_trait!(WFTDebug, WFFDebug, Debug);
 // lumped_trait!(WFTPartialEq, WFFPartialEq, PartialEq);
@@ -274,6 +275,49 @@ impl<N: WFFNames> WFFormula<N> {
         self.step.clone()
     }
 }
+
+#[derive(Derivative)]
+#[derivative(Debug(bound =
+"N::Variable: Debug, \
+    N::Function: Debug,"))]
+#[derivative(Clone(bound =
+"N::Variable: Clone, \
+    N::Function: Clone,"))]
+#[derivative(PartialEq(bound =
+"N::Variable: PartialEq, \
+    N::Function: PartialEq,"))]
+#[derivative(Eq(bound =
+"N::Variable: Eq, \
+    N::Function: Eq,"))]
+pub enum WFTStepData<N: WFTNames> {
+    Variable(N::Variable),
+    Function(N::Function),
+}
+// impl<N: WFTNames> UnpackRc for WFTerm<N> where
+//     N::Variable: Clone,
+//     N::Function: Clone
+// {
+//     type StepData = WFTStepData<N>;
+//     type StepRef = WFTStep<N>;
+//
+//     fn rc(&self) -> &Rc<Self::StepRef> {
+//         &self.step
+//     }
+//
+//     fn un_step_data(&self) -> Self::StepData {
+//         match &*self.step {
+//             WFTStep::Variable(name) => { WFTStepData::Variable(name.clone()) }
+//             WFTStep::Function(name, _) => { WFTStepData::Function(name.clone()) }
+//         }
+//     }
+//
+//     fn un_step_subs(&self) -> Vec<Self> {
+//         match &*self.step {
+//             WFTStep::Variable(_) => { vec![] }
+//             WFTStep::Function(_, terms) => { terms.clone() }
+//         }
+//     }
+// }
 #[cfg(test)]
 mod tests{
     use crate::formulae::wf_formula::{Arity, WFFNames, WFFormula, WFFStep, WFTerm, WFTStep};

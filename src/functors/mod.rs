@@ -1,4 +1,4 @@
 pub mod reductions;
 pub mod abstract_parser;
 pub mod recursive;
-mod unpack;
+pub mod unpack;
