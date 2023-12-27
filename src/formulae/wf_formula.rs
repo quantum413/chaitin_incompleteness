@@ -1,7 +1,6 @@
 use std::rc::Rc;
 use derivative::Derivative;
 use std::fmt::Debug;
-use crate::functors::recursive::UnpackRc;
 
 pub type Arity = usize;
 pub trait WFFNames {

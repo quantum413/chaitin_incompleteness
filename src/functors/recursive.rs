@@ -35,7 +35,7 @@ impl<R> PartialEq for HashWrapper<R> {
 }
 impl<R> Eq for HashWrapper<R> {}
 
-#[derive(Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnpackRcWrapper<T: UnpackRc>{
     internal: T,
 }
@@ -44,7 +44,8 @@ impl<T: UnpackRc> UnpackRcWrapper<T> {
     pub fn new(internal: T) -> Self{
         UnpackRcWrapper {internal}
     }
-
+    pub fn internal(&self) -> &T {&self.internal}
+    // pub fn into_internal(self) -> T {self.internal}
     pub fn un_step_data(&self) -> T::StepData {
         self.internal.un_step_data()
     }
@@ -207,12 +208,6 @@ impl<T:UnpackRc> Drop for UnpackRcWrapper<T> {
         }
     }
 }
-
-pub struct UnpackRcPtrWrapper<R>{
-    internal: Rc<R>,
-}
-
-
 
 #[cfg(test)]
 pub (in crate::functors) mod tests {
@@ -385,5 +380,6 @@ pub (in crate::functors) mod tests {
         let tree = BinaryTree::new_leaf();
         let wrapped = UnpackRcWrapper::new(UnRecursiveUnpack(tree));
         assert_eq!(1, 1);
+        drop(wrapped);
     }
 }
